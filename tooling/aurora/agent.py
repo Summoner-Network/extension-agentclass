@@ -188,48 +188,58 @@ class SummonerAgent(SummonerClient):
                 key_fn = _key         # freeze closures
                 seq_fn = _seq
 
+                parsed_route = None
+                normalized_route = route  # runtime key unless parse succeeds
+
+                if self._flow.in_use:
+                    try:
+                        parsed_route = self._flow.parse_route(route)
+                        normalized_route = str(parsed_route)
+                    except Exception as e:
+                        self.logger.warning(
+                            f"@keyed_receive: could not parse route {route!r} while flow is enabled; "
+                            f"registering raw route. Error: {type(e).__name__}: {e}"
+                        )
+                        parsed_route = None
+                        normalized_route = route
+
+                # NOTE: wrapped closes over normalized_route (resolved at registration time).
                 async def wrapped(payload):
                     # Defensive extraction with logging instead of exceptions.
-                    logger = getattr(self, "logger", None)
                     try:
                         k = key_fn(payload)
                     except Exception as e:
-                        if logger: logger.warning("key_fn raised for route %s: %s", route, e)
+                        self.logger.warning(f"key_fn raised for route {normalized_route!r}: {e}")
                         return None
                     if k is None:
-                        if logger: logger.debug("Dropped message on %s: missing/invalid key", route)
+                        self.logger.debug(f"Dropped message on route {normalized_route!r}: missing/invalid key")
                         return None
                     try:
-                        lock_key = (route, k)  # may raise if k unhashable; guarded above
+                        lock_key = (normalized_route, k)  # may raise if k unhashable; guarded above
                         async with self._key_mutex.lock(lock_key):
                             try:
                                 s = seq_fn(payload)
                             except Exception as e:
-                                if logger: logger.warning("seq_fn raised for route %s key %r: %s", route, k, e)
+                                self.logger.warning(f"seq_fn raised for route {normalized_route!r} key {k}: {e}")
                                 s = None
                             if s is not None:
                                 last = self._seq_seen.get(lock_key)
                                 if last is not None and s <= last:   # drop stale/replay
-                                    if logger: logger.debug("Dropped replay on %s key %r: seq %s <= last %s", route, k, s, last)
+                                    self.logger.debug(f"Dropped replay on route {normalized_route!r} key {k}: seq {s} <= last {last}")
                                     return None
                                 self._seq_seen[lock_key] = s
                             return await raw_fn(payload)
                     except Exception as e:
                         # Final safety net to avoid crashing the dispatcher.
-                        if logger: logger.error("Error handling message on %s key %r: %s", route, k, e)
+                        self.logger.error(f"Error handling message on {normalized_route!r} key {k!r}: {e}", exc_info=True)
                         return None
 
                 receiver = Receiver(fn=wrapped, priority=tuple_priority)
 
-                if self._flow.in_use:
-                    parsed_route = self._flow.parse_route(route)
-                    normalized_route = str(parsed_route)
-                    async with self.routes_lock:
+                async with self.routes_lock:
+                    if self._flow.in_use and parsed_route is not None:
                         self.receiver_parsed_routes[normalized_route] = parsed_route
-                        self.receiver_index[normalized_route] = receiver
-                else:
-                    async with self.routes_lock:
-                        self.receiver_index[route] = receiver
+                    self.receiver_index[normalized_route] = receiver
 
             self._schedule_registration(register())
             return fn

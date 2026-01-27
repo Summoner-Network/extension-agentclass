@@ -4,6 +4,7 @@ logs/
 todo.py
 validation_draft.json
 *.old
+server_comm.jsonc
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
