@@ -1,9 +1,13 @@
 core/
 .DS_Store
 logs/
+*.old
+test_server_config.json 
+test_server.py
+
+# temporary (Remy)
 todo.py
 validation_draft.json
-*.old
 server_comm.jsonc
 
 # Byte-compiled / optimized / DLL files
