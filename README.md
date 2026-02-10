@@ -1,18 +1,18 @@
-# Starter Template
+# Extension Template
 
-This repository is a **starter template** for building Python and Rust projects that integrate with [Summoner's core codebase](https://github.com/Summoner-Network/summoner-core) for client/server communication.
+This repository is a **extension template** for building Python and Rust projects that integrate with [Summoner's core codebase](https://github.com/Summoner-Network/summoner-core) for client/server communication.
 
 It bootstraps a virtual environment, installs all dependencies, and provides tooling to validate the setup and run a test server.
 
 ## Getting Started
 
-To create your own project using this starter:
+To create your own project using this template:
 
 <p align="center">
   <img width="450px" src="img/use_template.png" alt="Use this template button screenshot" />
 </p>
 
-1. Click the **"Use this template"** button at the top of the [GitHub repository page](https://github.com/Summoner-Network/starter-template).
+1. Click the **"Use this template"** button at the top of the [GitHub repository page](https://github.com/Summoner-Network/extension-template).
 2. Select **"Create a new repository"**.
 3. Name your project and click **"Create repository from template"**.
 
