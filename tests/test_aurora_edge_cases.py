@@ -309,3 +309,161 @@ def test_aurora_internal_resolvers_raise_for_invalid_specs():
 
     with pytest.raises(KeyError):
         _read_required_mapping_field({}, "route")
+
+
+def test_keyed_receive_seq_history_max_entries_validation():
+    agent = SummonerAgent(name="aurora-seq-config")
+
+    try:
+        with pytest.raises(ValueError):
+            agent.keyed_receive("overlay", key_by="pid", seq_history_max_entries=2)
+
+        with pytest.raises(TypeError):
+            agent.keyed_receive("overlay", key_by="pid", seq_by="seq", seq_history_max_entries="2")
+
+        with pytest.raises(ValueError):
+            agent.keyed_receive("overlay", key_by="pid", seq_by="seq", seq_history_max_entries=0)
+    finally:
+        _close_clients(agent)
+
+
+def test_keyed_receive_replay_stats_and_route_clear_cover_uncapped_and_bounded_state():
+    agent = SummonerAgent(name="aurora-replay-stats")
+
+    try:
+        @agent.keyed_receive("overlay", key_by="pid", seq_by="seq")
+        async def overlay(payload: dict) -> Any:
+            return payload["seq"]
+
+        @agent.keyed_receive("bounded", key_by="pid", seq_by="seq", seq_history_max_entries=2)
+        async def bounded(payload: dict) -> Any:
+            return payload["seq"]
+
+        _wait_for_registration(agent)
+
+        overlay_receiver = agent.receiver_index["overlay"]
+        bounded_receiver = agent.receiver_index["bounded"]
+
+        assert agent.loop.run_until_complete(overlay_receiver.fn({"pid": "A", "seq": 1})) == 1
+        assert agent.loop.run_until_complete(overlay_receiver.fn({"pid": "B", "seq": 1})) == 1
+        assert agent.loop.run_until_complete(overlay_receiver.fn({"pid": "A", "seq": 1})) is None
+
+        assert agent.loop.run_until_complete(bounded_receiver.fn({"pid": "X", "seq": 1})) == 1
+        assert agent.loop.run_until_complete(bounded_receiver.fn({"pid": "Y", "seq": 1})) == 1
+        assert agent.loop.run_until_complete(bounded_receiver.fn({"pid": "Z", "seq": 1})) == 1
+
+        stats = agent.keyed_receive_replay_stats()
+        assert stats["routes"] == 2
+        assert stats["entries"] == 4
+        assert stats["evictions"] == 1
+
+        agent.clear_keyed_receive_replay_state("overlay")
+        stats = agent.keyed_receive_replay_stats()
+        assert stats["routes"] == 1
+        assert stats["entries"] == 2
+        assert stats["evictions"] == 1
+
+        assert agent.loop.run_until_complete(overlay_receiver.fn({"pid": "A", "seq": 1})) == 1
+
+        agent.clear_keyed_receive_replay_state()
+        stats = agent.keyed_receive_replay_stats()
+        assert stats["routes"] == 0
+        assert stats["entries"] == 0
+    finally:
+        _close_clients(agent)
+
+
+def test_keyed_receive_bounded_seq_history_evicts_cold_keys_and_tracks_stats():
+    agent = SummonerAgent(name="aurora-bounded-seq")
+
+    try:
+        @agent.keyed_receive("overlay", key_by="pid", seq_by="seq", seq_history_max_entries=2)
+        async def handle(payload: dict) -> Any:
+            return payload["seq"]
+
+        _wait_for_registration(agent)
+        receiver = agent.receiver_index["overlay"]
+
+        assert agent.loop.run_until_complete(receiver.fn({"pid": "A", "seq": 1})) == 1
+        assert agent.loop.run_until_complete(receiver.fn({"pid": "B", "seq": 1})) == 1
+        assert agent.loop.run_until_complete(receiver.fn({"pid": "C", "seq": 1})) == 1
+        assert agent.loop.run_until_complete(receiver.fn({"pid": "C", "seq": 1})) is None
+
+        stats = agent.keyed_receive_replay_stats()
+        assert stats["routes"] == 1
+        assert stats["entries"] == 2
+        assert stats["evictions"] == 1
+
+        assert agent.loop.run_until_complete(receiver.fn({"pid": "A", "seq": 1})) == 1
+        assert agent.keyed_receive_replay_stats()["evictions"] == 2
+
+        aurora_entry = next(
+            entry for entry in json.loads(agent.dna()) if entry["type"] == AURORA_KEYED_RECEIVE_TYPE
+        )
+        assert aurora_entry["seq_history_max_entries"] == 2
+
+        agent.clear_keyed_receive_replay_state()
+        assert agent.keyed_receive_replay_stats()["entries"] == 0
+        assert agent.keyed_receive_replay_stats()["routes"] == 0
+    finally:
+        _close_clients(agent)
+
+
+def test_agent_merger_preserves_bounded_seq_history_from_imported_client():
+    source = SummonerAgent(name="aurora-bounded-source")
+    merged = None
+
+    try:
+        @source.keyed_receive("overlay", key_by="pid", seq_by="seq", seq_history_max_entries=2)
+        async def handle(payload: dict) -> Any:
+            return payload["seq"]
+
+        _wait_for_registration(source)
+
+        merged = AgentMerger([source], name="aurora-bounded-merged", close_subclients=False)
+        merged.initiate_all()
+        _wait_for_registration(merged)
+
+        receiver = merged.receiver_index["overlay"]
+        assert merged.loop.run_until_complete(receiver.fn({"pid": "A", "seq": 1})) == 1
+        assert merged.loop.run_until_complete(receiver.fn({"pid": "B", "seq": 1})) == 1
+        assert merged.loop.run_until_complete(receiver.fn({"pid": "C", "seq": 1})) == 1
+        assert merged.loop.run_until_complete(receiver.fn({"pid": "A", "seq": 1})) == 1
+
+        assert merged.keyed_receive_replay_stats()["entries"] == 2
+        assert merged.keyed_receive_replay_stats()["evictions"] == 2
+    finally:
+        _close_clients(source, merged)
+
+
+def test_agent_translation_preserves_bounded_seq_history_from_aurora_dna():
+    source = SummonerAgent(name="aurora-bounded-translation-source")
+    translated = None
+
+    try:
+        @source.keyed_receive("overlay", key_by="pid", seq_by="seq", seq_history_max_entries=2)
+        async def handle(payload: dict) -> Any:
+            return payload["seq"]
+
+        _wait_for_registration(source)
+
+        entries = json.loads(source.dna(include_context=True))
+        translated = AgentTranslation(entries, name="aurora-bounded-translated")
+        translated.initiate_all()
+        _wait_for_registration(translated)
+
+        receiver = translated.receiver_index["overlay"]
+        assert translated.loop.run_until_complete(receiver.fn({"pid": "A", "seq": 1})) == 1
+        assert translated.loop.run_until_complete(receiver.fn({"pid": "B", "seq": 1})) == 1
+        assert translated.loop.run_until_complete(receiver.fn({"pid": "C", "seq": 1})) == 1
+        assert translated.loop.run_until_complete(receiver.fn({"pid": "A", "seq": 1})) == 1
+
+        assert translated.keyed_receive_replay_stats()["entries"] == 2
+        assert translated.keyed_receive_replay_stats()["evictions"] == 2
+
+        translated_entry = next(
+            entry for entry in json.loads(translated.dna()) if entry["type"] == AURORA_KEYED_RECEIVE_TYPE
+        )
+        assert translated_entry["seq_history_max_entries"] == 2
+    finally:
+        _close_clients(source, translated)

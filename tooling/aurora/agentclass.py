@@ -2,6 +2,7 @@ import inspect
 import json
 import textwrap
 
+from collections import OrderedDict
 from importlib import import_module
 
 from summoner.client import SummonerClient
@@ -133,6 +134,9 @@ class _AuroraMixin:
         super().__init__(*args, **kwargs)
         self._key_mutex: Optional[AsyncKeyedMutex] = None
         self._seq_seen: dict[tuple[str, Hashable], int] = {}
+        self._seq_seen_bounded: dict[str, dict[Hashable, int]] = {}
+        self._seq_seen_lru: dict[str, OrderedDict[Hashable, None]] = {}
+        self._seq_seen_evictions: int = 0
         self._dna_aurora_receivers: list[dict[str, Any]] = []
 
     def _iter_registered_handler_functions(self):
@@ -161,6 +165,24 @@ class _AuroraMixin:
             f"Priority for {decorator_name} must be an integer or a tuple of integers "
             f"(got type {type(priority).__name__}: {priority!r})"
         )
+
+    @staticmethod
+    def _normalize_seq_history_max_entries(
+        value: Optional[int],
+    ) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(
+                "Argument `seq_history_max_entries` must be `None` or a positive integer. "
+                f"Provided: {value!r}"
+            )
+        if value <= 0:
+            raise ValueError(
+                "Argument `seq_history_max_entries` must be positive when provided. "
+                f"Provided: {value!r}"
+            )
+        return value
 
     def _serialize_extractor_spec(
         self,
@@ -230,46 +252,139 @@ class _AuroraMixin:
         key_by: Union[str, Callable[[Any], Hashable]],
     ) -> Callable[[Any], Optional[Hashable]]:
         if isinstance(key_by, str):
+            field = key_by
+
             def _key(payload: Any) -> Optional[Hashable]:
-                return self._coerce_hashable(self._read_payload_field(payload, key_by))
+                try:
+                    if isinstance(payload, dict):
+                        value = payload.get(field)
+                    else:
+                        value = getattr(payload, field, None)
+                except Exception:
+                    return None
+
+                if value is None:
+                    return None
+
+                try:
+                    hash(value)
+                except Exception:
+                    return None
+                return value
+
             return _key
+
+        callable_key_by = key_by
 
         def _key(payload: Any) -> Optional[Hashable]:
             try:
-                value = key_by(payload)
+                value = callable_key_by(payload)
             except Exception:
                 return None
-            return self._coerce_hashable(value)
+
+            if value is None:
+                return None
+
+            try:
+                hash(value)
+            except Exception:
+                return None
+            return value
 
         return _key
 
     def _build_seq_extractor(
         self,
         seq_by: Union[None, str, Callable[[Any], int]],
-    ) -> Callable[[Any], Optional[int]]:
+    ) -> Optional[Callable[[Any], Optional[int]]]:
         if seq_by is None:
-            def _seq(_: Any) -> Optional[int]:
-                return None
-            return _seq
+            return None
 
         if isinstance(seq_by, str):
+            field = seq_by
+
             def _seq(payload: Any) -> Optional[int]:
-                value = self._read_payload_field(payload, seq_by)
+                try:
+                    if isinstance(payload, dict):
+                        value = payload.get(field)
+                    else:
+                        value = getattr(payload, field, None)
+                except Exception:
+                    return None
+
                 if value is None:
                     return None
                 try:
                     return int(value)
                 except (TypeError, ValueError):
                     return None
+
             return _seq
+
+        callable_seq_by = seq_by
 
         def _seq(payload: Any) -> Optional[int]:
             try:
-                return int(seq_by(payload))
+                return int(callable_seq_by(payload))
             except Exception:
                 return None
 
         return _seq
+
+    def _ensure_bounded_route_seq_state(
+        self,
+        route: str,
+    ) -> tuple[dict[Hashable, int], OrderedDict[Hashable, None]]:
+        route_seq_seen = self._seq_seen_bounded.get(route)
+        if route_seq_seen is None:
+            route_seq_seen = {}
+            self._seq_seen_bounded[route] = route_seq_seen
+
+        route_seq_lru = self._seq_seen_lru.get(route)
+        if route_seq_lru is None:
+            route_seq_lru = OrderedDict((key, None) for key in route_seq_seen)
+            self._seq_seen_lru[route] = route_seq_lru
+        return route_seq_seen, route_seq_lru
+
+    def clear_keyed_receive_replay_state(
+        self,
+        route: Optional[str] = None,
+    ) -> None:
+        if route is None:
+            self._seq_seen.clear()
+            for route_seq_seen in self._seq_seen_bounded.values():
+                route_seq_seen.clear()
+            for route_seq_lru in self._seq_seen_lru.values():
+                route_seq_lru.clear()
+            return
+
+        normalized_route = route.strip()
+        for lock_key in tuple(self._seq_seen):
+            if lock_key[0] == normalized_route:
+                self._seq_seen.pop(lock_key, None)
+
+        route_seq_seen = self._seq_seen_bounded.get(normalized_route)
+        if route_seq_seen is not None:
+            route_seq_seen.clear()
+
+        route_seq_lru = self._seq_seen_lru.get(normalized_route)
+        if route_seq_lru is not None:
+            route_seq_lru.clear()
+
+    def keyed_receive_replay_stats(self) -> dict[str, int]:
+        routes = {route for route, _ in self._seq_seen}
+        entries = len(self._seq_seen)
+        for route, route_seq_seen in self._seq_seen_bounded.items():
+            count = len(route_seq_seen)
+            entries += count
+            if count > 0:
+                routes.add(route)
+
+        return {
+            "routes": len(routes),
+            "entries": entries,
+            "evictions": self._seq_seen_evictions,
+        }
 
     async def _register_keyed_receiver(
         self,
@@ -279,12 +394,17 @@ class _AuroraMixin:
         tuple_priority: tuple[int, ...],
         key_by: Union[str, Callable[[Any], Hashable]],
         seq_by: Union[None, str, Callable[[Any], int]],
+        seq_history_max_entries: Optional[int],
     ) -> None:
         if self._key_mutex is None:
             self._key_mutex = AsyncKeyedMutex()
 
+        keyed_mutex = self._key_mutex
+        logger = self.logger
+        raw_fn = fn
         key_fn = self._build_key_extractor(key_by)
         seq_fn = self._build_seq_extractor(seq_by)
+        seq_seen = self._seq_seen
         parsed_route = None
         normalized_route = route
 
@@ -300,28 +420,90 @@ class _AuroraMixin:
                 parsed_route = None
                 normalized_route = route
 
-        async def wrapped(payload: Any):
-            key = key_fn(payload)
-            if key is None:
-                self.logger.debug(
-                    f"Dropped message on route {normalized_route!r}: missing/invalid key"
-                )
-                return None
+        mutex_lock = keyed_mutex.lock
+        route_name = normalized_route
 
-            lock_key = (normalized_route, key)
-            async with self._key_mutex.lock(lock_key):
-                seq = seq_fn(payload)
-                if seq is not None:
-                    last = self._seq_seen.get(lock_key)
-                    if last is not None and seq <= last:
-                        self.logger.debug(
-                            f"Dropped replay on route {normalized_route!r} key {key!r}: "
-                            f"seq {seq} <= last {last}"
-                        )
-                        return None
-                    self._seq_seen[lock_key] = seq
+        if seq_fn is None:
+            async def wrapped(payload: Any):
+                key = key_fn(payload)
+                if key is None:
+                    logger.debug(
+                        "Dropped message on route %r: missing/invalid key",
+                        route_name,
+                    )
+                    return None
 
-                return await fn(payload)
+                lock_key = (route_name, key)
+                async with mutex_lock(lock_key):
+                    return await raw_fn(payload)
+        elif seq_history_max_entries is None:
+            async def wrapped(payload: Any):
+                key = key_fn(payload)
+                if key is None:
+                    logger.debug(
+                        "Dropped message on route %r: missing/invalid key",
+                        route_name,
+                    )
+                    return None
+
+                lock_key = (route_name, key)
+                async with mutex_lock(lock_key):
+                    seq = seq_fn(payload)
+                    if seq is not None:
+                        last = seq_seen.get(lock_key)
+                        if last is not None and seq <= last:
+                            logger.debug(
+                                "Dropped replay on route %r key %r: seq %s <= last %s",
+                                route_name,
+                                key,
+                                seq,
+                                last,
+                            )
+                            return None
+                        seq_seen[lock_key] = seq
+
+                    return await raw_fn(payload)
+        else:
+            route_seq_seen, route_seq_lru = self._ensure_bounded_route_seq_state(route_name)
+            max_entries = seq_history_max_entries
+
+            async def wrapped(payload: Any):
+                key = key_fn(payload)
+                if key is None:
+                    logger.debug(
+                        "Dropped message on route %r: missing/invalid key",
+                        route_name,
+                    )
+                    return None
+
+                lock_key = (route_name, key)
+                async with mutex_lock(lock_key):
+                    seq = seq_fn(payload)
+                    if seq is not None:
+                        last = route_seq_seen.get(key)
+                        if last is not None:
+                            route_seq_lru[key] = None
+                            route_seq_lru.move_to_end(key)
+                            if seq <= last:
+                                logger.debug(
+                                    "Dropped replay on route %r key %r: seq %s <= last %s",
+                                    route_name,
+                                    key,
+                                    seq,
+                                    last,
+                                )
+                                return None
+
+                        route_seq_seen[key] = seq
+                        route_seq_lru[key] = None
+                        route_seq_lru.move_to_end(key)
+
+                        while len(route_seq_lru) > max_entries:
+                            evicted_key, _ = route_seq_lru.popitem(last=False)
+                            route_seq_seen.pop(evicted_key, None)
+                            self._seq_seen_evictions += 1
+
+                    return await raw_fn(payload)
 
         receiver = Receiver(fn=wrapped, priority=tuple_priority)
 
@@ -359,6 +541,7 @@ class _AuroraMixin:
             "seq_by_value": dna["seq_by_value"],
             "seq_by_name": dna["seq_by_name"],
             "seq_by_source": dna.get("seq_by_source", None),
+            "seq_history_max_entries": dna.get("seq_history_max_entries", None),
             "source": get_callable_source(fn, dna.get("source")),
             "module": fn.__module__,
             "fn_name": fn.__name__,
@@ -444,10 +627,16 @@ class _AuroraMixin:
         key_by: Union[str, Callable[[Any], Hashable]],
         priority: Union[int, tuple[int, ...]] = (),
         seq_by: Union[None, str, Callable[[Any], int]] = None,
+        seq_history_max_entries: Optional[int] = None,
     ):
         if not isinstance(route, str):
             raise TypeError(f"Argument `route` must be string. Provided: {route}")
         route = route.strip()
+        normalized_seq_history_max_entries = self._normalize_seq_history_max_entries(
+            seq_history_max_entries
+        )
+        if normalized_seq_history_max_entries is not None and seq_by is None:
+            raise ValueError("Argument `seq_history_max_entries` requires `seq_by`")
 
         key_by_kind, key_by_value, key_by_name, key_by_source = self._serialize_extractor_spec(
             key_by,
@@ -497,6 +686,7 @@ class _AuroraMixin:
                 "seq_by_value": seq_by_value,
                 "seq_by_name": seq_by_name,
                 "seq_by_source": seq_by_source,
+                "seq_history_max_entries": normalized_seq_history_max_entries,
                 "source": inspect.getsource(fn),
                 "module": fn.__module__,
                 "fn_name": fn.__name__,
@@ -509,6 +699,7 @@ class _AuroraMixin:
                     tuple_priority=tuple_priority,
                     key_by=key_by,
                     seq_by=seq_by,
+                    seq_history_max_entries=normalized_seq_history_max_entries,
                 )
             )
             return fn

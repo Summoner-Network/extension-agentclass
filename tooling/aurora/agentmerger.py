@@ -74,6 +74,7 @@ class AgentMerger(_AuroraMixin, ClientMerger):
                             key_by=key_by,
                             priority=tuple(dna.get("priority", ())),
                             seq_by=seq_by,
+                            seq_history_max_entries=dna.get("seq_history_max_entries", None),
                         )(fn_clone)
                     except Exception as e:
                         self.logger.warning(
@@ -111,6 +112,7 @@ class AgentMerger(_AuroraMixin, ClientMerger):
                     key_by=key_by,
                     priority=tuple(entry.get("priority", ())),
                     seq_by=seq_by,
+                    seq_history_max_entries=entry.get("seq_history_max_entries", None),
                 )
                 self._apply_with_source_patch(dec, fn, entry["source"])
 
@@ -151,5 +153,6 @@ class AgentTranslation(_AuroraMixin, ClientTranslation):
                 key_by=key_by,
                 priority=tuple(entry.get("priority", ())),
                 seq_by=seq_by,
+                seq_history_max_entries=entry.get("seq_history_max_entries", None),
             )
             self._apply_with_source_patch(dec, fn, entry["source"])

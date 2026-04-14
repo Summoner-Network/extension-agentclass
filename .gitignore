@@ -9,7 +9,8 @@ test_server.py
 todo.py
 validation_draft.json
 server_comm.jsonc
-tooling/aurora/identity/
+tooling/aurora/identity
+# !tooling/aurora/identity/identity.py
 tests/test_aurora_agent/
 tests/test_identity/
 __draft__/
