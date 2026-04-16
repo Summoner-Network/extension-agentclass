@@ -129,7 +129,7 @@ def _resolve_aurora_extractor_spec(
 class _AuroraMixin:
 
     release_name = "aurora"
-    release_version = "beta.1.2.0"
+    release_version = "1.0.0"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

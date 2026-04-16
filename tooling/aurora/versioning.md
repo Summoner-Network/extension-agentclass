@@ -196,31 +196,32 @@ compatibility tag that should be managed deliberately.
 
 | Symbol | Current value | Governs | Increase when | Do not increase when |
 | --- | --- | --- | --- | --- |
-| `_AuroraMixin.release_version` | `beta.1.2.0` | Aurora release marker for the mixin and `SummonerAgent` layer | Aurora publishes a new release or milestone | A schema or protocol change happens but the Aurora release marker is intentionally unchanged |
+| `_AuroraMixin.release_version` | `1.0.0` | Aurora release marker for the mixin and `SummonerAgent` layer | Aurora publishes a new release or milestone | A schema or protocol change happens but the Aurora release marker is intentionally unchanged |
 
 This string is a release marker, not a serialized schema version. It should be
 managed as release metadata.
 
 Recommended convention:
 
-- first segment: channel or stability stage, such as `beta`,
-- next segment: major Aurora API generation,
-- next segment: additive feature milestone,
-- last segment: patch-level fixes and documentation corrections.
+- first segment: `MAJOR`, for intentional breaking public changes at the Aurora
+  layer,
+- second segment: `MINOR`, for backward-compatible feature additions,
+- third segment: `PATCH`, for backward-compatible fixes, performance work, test
+  updates, and documentation corrections.
 
 Using the current shape, the practical bump rules are:
 
-- change `beta.1.2.0` to `beta.1.2.1` for bug fixes, test-only corrections,
+- change `1.0.0` to `1.0.1` for bug fixes, test-only corrections,
   documentation improvements, or performance work that does not intentionally
   change the public Aurora contract;
-- change `beta.1.2.0` to `beta.1.3.0` for additive Aurora features or new
-  optional capabilities;
-- change `beta.1.2.0` to `beta.2.0.0` when Aurora makes an intentional breaking
-  public change at the agent layer;
-- replace the `beta` prefix when Aurora exits the beta channel.
+- change `1.0.0` to `1.1.0` for additive Aurora features or new optional
+  capabilities;
+- change `1.0.0` to `2.0.0` when Aurora makes an intentional breaking public
+  change at the agent layer.
 
-If the project later adopts a different release naming convention, this
-documentation and the string format should be changed together.
+If Aurora later needs pre-release identifiers again, use a normal semantic
+version suffix such as `1.1.0-rc.1` rather than returning to a custom release
+marker format.
 
 
 ### 5.2) `AURORA_KEYED_RECEIVE_TYPE`
@@ -299,6 +300,6 @@ Use this checklist when any Aurora version string changes.
 | `identity.py` | `IDENTITY_CONTROLS_VERSION` | `aurora.identity.controls.v1` | Controls API changes incompatibly |
 | `identity.py` | versioned domain labels | `.../v1/...` | Cryptographic derivation or binding changes |
 | `host.py` | `IDENTITY_HOST_VERSION` | `aurora.identity.host.v1` | Host integration contract changes |
-| `agentclass.py` | `_AuroraMixin.release_version` | `beta.1.2.0` | Aurora release milestone changes |
+| `agentclass.py` | `_AuroraMixin.release_version` | `1.0.0` | Aurora release milestone changes |
 | `agentclass.py` | `AURORA_KEYED_RECEIVE_TYPE` | `aurora:keyed_receive` | Introduce a new type only if Aurora DNA becomes incompatible |
 | `agentmerger.py` | no dedicated version string today | — | Add one only if merger must interpret multiple incompatible Aurora DNA dialects |
