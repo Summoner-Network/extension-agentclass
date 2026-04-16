@@ -11,6 +11,7 @@ from summoner.protocol.triggers import Event
 from summoner.protocol.validation import _check_param_and_return
 from summoner.utils import get_callable_source
 
+from tooling.aurora.identity.host import IdentityHostMixin
 from tooling.aurora.utils.async_keyed_mutex import AsyncKeyedMutex
 
 from typing import Callable, Hashable, Any, Optional, Union
@@ -707,5 +708,5 @@ class _AuroraMixin:
         return decorator
 
 
-class SummonerAgent(_AuroraMixin, SummonerClient):
+class SummonerAgent(IdentityHostMixin, _AuroraMixin, SummonerClient):
     pass

@@ -2,6 +2,7 @@ from summoner.client.merger import ClientMerger, ClientTranslation
 
 from typing import Any
 
+from .identity.host import IdentityHostMixin
 from .agentclass import (
     AURORA_KEYED_RECEIVE_TYPE,
     _AuroraMixin,
@@ -15,7 +16,7 @@ def _read_required_mapping_field(entry: dict[str, Any], field: str) -> Any:
     return entry[field]
 
 
-class AgentMerger(_AuroraMixin, ClientMerger):
+class AgentMerger(IdentityHostMixin, _AuroraMixin, ClientMerger):
 
     def _resolve_imported_extractor(
         self,
@@ -117,7 +118,7 @@ class AgentMerger(_AuroraMixin, ClientMerger):
                 self._apply_with_source_patch(dec, fn, entry["source"])
 
 
-class AgentTranslation(_AuroraMixin, ClientTranslation):
+class AgentTranslation(IdentityHostMixin, _AuroraMixin, ClientTranslation):
 
     def initiate_receivers(self):
         super().initiate_receivers()

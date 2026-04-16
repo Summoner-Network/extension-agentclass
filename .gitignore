@@ -9,10 +9,9 @@ test_server.py
 todo.py
 validation_draft.json
 server_comm.jsonc
-tooling/aurora/identity
-# !tooling/aurora/identity/identity.py
+tooling/aurora/identity/identity_backup.py
 tests/test_aurora_agent/
-tests/test_identity/
+tests/test_session_agent/
 __draft__/
 
 # Byte-compiled / optimized / DLL files
