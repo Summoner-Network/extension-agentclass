@@ -1,4 +1,4 @@
-# Summoner Identity Controls API Reference (`identity.py`)
+# SummonerIdentityControls API Reference (`identity.py`)
 
 `SummonerIdentityControls` denotes the per-identity control layer used by
 Aurora to attach persistence, trust, continuity, and audit behavior to a

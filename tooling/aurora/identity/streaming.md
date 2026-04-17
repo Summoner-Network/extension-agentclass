@@ -1,4 +1,4 @@
-# Summoner Identity Streaming API Reference (`identity.py`)
+# SummonerIdentity Streaming API Reference (`identity.py`)
 
 `SummonerIdentity` supports streaming by extending the session proof with
 turn-owned stream metadata. This reference documents the current streaming API,
