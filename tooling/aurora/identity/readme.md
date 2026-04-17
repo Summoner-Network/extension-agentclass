@@ -18,27 +18,29 @@ Suggested order for initial use:
 The customization sections (`Storage hooks`, `SummonerIdentityControls`, instance hooks)
 are easier to read after the basic flow already makes sense.
 
-For a dedicated streaming-first reference (state model, stream-specific codes, and stream telemetry matrix), see:
+The documents around this README are meant to be used as a small reference
+library. This file is the main API reference for `tooling.aurora.identity`. The
+companion documents below cover the adjacent questions that are better handled
+in dedicated notes.
 
-* `tooling/aurora/identity/streaming.md`
+### Companion documents inside `tooling/aurora/identity/`
 
-For a detailed reference on how Aurora version strings are managed across
-identity, host, agent, and merger surfaces, see:
+| Document | Purpose |
+| --- | --- |
+| `cheatsheet.md` | Quick-start walkthroughs and side-by-side usage patterns |
+| `streaming.md` | Streaming session rules, stream-specific states, and stream telemetry |
+| `policy_event_api.md` | Phase-scoped policy-event telemetry model and event payload guidance |
+| `identity_controls.md` | Identity-controls mental model, deployment patterns, and control-boundary examples |
+| `diagrams.md` | Diagrams and visual mental models for identity, controls, and customization paths |
+| `security_report.md` | Security interpretation, threat-oriented reasoning, and review-oriented discussion |
 
-* `tooling/aurora/versioning.md`
+### Adjacent Aurora references outside `tooling/aurora/identity/`
 
-For a focused note on how `meta` affects fingerprints, public identity records,
-and continuity between agents, see:
-
-* `tooling/aurora/identity_meta.md`
-
-For a detailed deployment reference on `SummonerIdentityControls`, including
-`SummonerAgent` attach / detach patterns, multi-identity process examples, and
-security / compliance framing, see:
-
-* `tooling/aurora/identity/identity_controls.md`
-
----
+| Document | Purpose |
+| --- | --- |
+| `tooling/aurora/identity_meta.md` | How `meta` affects fingerprints, public identity records, and continuity |
+| `tooling/aurora/did_documentation.md` | Language-agnostic specification for the current Aurora agent identity record and local identity-file format |
+| `tooling/aurora/versioning.md` | Version lifecycle across identity, host, agent, and merger surfaces |
 
 ## Contents
 
@@ -120,8 +122,6 @@ security / compliance framing, see:
   * [Custom session storage hooks](#custom-session-storage-hooks)
 * [Notes for implementers](#notes-for-implementers)
 
----
-
 ## Design intent
 
 The protocol uses a **nonce-chain** to track continuity. The only orientation field is:
@@ -136,8 +136,6 @@ The scheme is intentionally minimal:
 * **Optional encryption** happens when a receiver identity (`to`) is present.
 * **Replay and continuity** are enforced by strict nonce-chain rules.
 * **History** is a rolling hash of completed exchanges, used for continuity in new sessions.
-
----
 
 ## Wire formats
 
@@ -338,8 +336,6 @@ If `to` is present, payload is encrypted and stored as:
 }
 ```
 
----
-
 ## Session continuity rules
 
 ### Start-form rules
@@ -367,8 +363,6 @@ When a session exists:
    * not present in current link `seen`
 
 The `seen` list is a **minimal replay defense** for messages inside the same in‑progress conversation.
-
----
 
 ## Replay handling (step‑by‑step)
 
@@ -419,8 +413,6 @@ This replay cache check is always active:
 
 * It does not enforce ordering or concurrency (that still depends on the nonce‑chain).
 
----
-
 ## History hash and history_proof
 
 ### History
@@ -451,8 +443,6 @@ Plaintext (example):
 
 **Key derivation:** `derive_history_proof_key(sym_key, aad_bytes)`  
 **AAD binds** identity direction, sender_role, ts, ttl, and version.
-
----
 
 ## Storage hooks, controls, and fallback store
 
@@ -1086,8 +1076,6 @@ Store loading rules:
 }
 ```
 
----
-
 ## Public constants
 
 These constants are part of the wire format, fallback-store format, and/or domain separation.
@@ -1123,8 +1111,6 @@ For application code, prefer the helper methods:
 
 * `SummonerIdentity.store_versions()`
 * `SummonerIdentity.controls_version()`
-
----
 
 ## Public functions
 
@@ -1661,8 +1647,6 @@ Derives a dedicated AEAD key for payload encryption/decryption.
 kp = derive_payload_key(sym, aad_bytes)
 ```
 
----
-
 ## Class: `SummonerIdentityControls`
 
 Reusable controls object for one `SummonerIdentity`.
@@ -1758,8 +1742,6 @@ Selection guidance:
 
 * if you are only overriding one or two behaviors on one live object, `@identity.on_*` may be simpler;
 * if you want a named, reusable group of callbacks for one identity object, `SummonerIdentityControls` is the clearer choice.
-
----
 
 ## Class: `SummonerIdentity`
 
@@ -3438,8 +3420,6 @@ Use this helper for `to=None` discovery ingress when you want to:
 * Use `open_envelope(...)` when you actually want session continuity verification and
   session-state commit on a peer/session lane.
 
----
-
 ## End-to-end examples
 
 ### Two-party encrypted conversation
@@ -3640,8 +3620,6 @@ def my_reset_session(peer_public_id, local_role):
     # Keep default reset semantics.
     return identity.reset_session_default(peer_public_id, local_role)
 ```
-
----
 
 ## Notes for implementers
 
