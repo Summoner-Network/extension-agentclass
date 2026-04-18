@@ -1,52 +1,62 @@
 import asyncio
-from typing import Hashable
+
+from typing import Hashable, Optional
+
+
+class _KeyedMutexGuard:
+    __slots__ = ("_mutex", "_key", "_lock")
+
+    def __init__(self, mutex: "AsyncKeyedMutex", key: Hashable):
+        self._mutex = mutex
+        self._key = key
+        self._lock: Optional[asyncio.Lock] = None
+
+    async def __aenter__(self):
+        lock = self._mutex._acquire_lock_ref(self._key)
+        self._lock = lock
+        try:
+            await lock.acquire()
+        except asyncio.CancelledError:
+            self._mutex._release_lock_ref(self._key)
+            raise
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self._lock is not None:
+            self._lock.release()
+        self._mutex._release_lock_ref(self._key)
+
 
 class AsyncKeyedMutex:
+    __slots__ = ("_locks", "_refs")
+
     def __init__(self):
         self._locks: dict[Hashable, asyncio.Lock] = {}
         self._refs: dict[Hashable, int] = {}
-        self._guard = asyncio.Lock()
 
-    def lock(self, key: Hashable):
-        mutex = self
-        class _Guard:
-            
-            # async def __aenter__(self_nonlocal):
-            #     async with mutex._guard:
-            #         lock = mutex._locks.get(key)
-            #         if lock is None:
-            #             lock = asyncio.Lock()
-            #             mutex._locks[key] = lock
-            #             mutex._refs[key] = 0
-            #         mutex._refs[key] += 1
-            #         self_nonlocal._lock = lock
-            #     await self_nonlocal._lock.acquire()
+    def _acquire_lock_ref(self, key: Hashable) -> asyncio.Lock:
+        # Aurora handlers run on a single event loop, so this bookkeeping
+        # executes atomically until the await on `lock.acquire()`.
+        lock = self._locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[key] = lock
+            self._refs[key] = 1
+            return lock
+        self._refs[key] += 1
+        return lock
 
-            async def __aenter__(self_nonlocal):
-                async with mutex._guard:
-                    lock = mutex._locks.get(key)
-                    if lock is None:
-                        lock = asyncio.Lock()
-                        mutex._locks[key] = lock
-                        mutex._refs[key] = 0
-                    mutex._refs[key] += 1
-                    self_nonlocal._lock = lock
-                try:
-                    await self_nonlocal._lock.acquire()
-                except asyncio.CancelledError:
-                    async with mutex._guard:
-                        mutex._refs[key] -= 1
-                        if mutex._refs[key] == 0:
-                            del mutex._locks[key]
-                            del mutex._refs[key]
-                    raise
+    def _release_lock_ref(self, key: Hashable) -> None:
+        refs = self._refs.get(key)
+        if refs is None:
+            return
 
-            async def __aexit__(self_nonlocal, exc_type, exc, tb): # keep inputs to align with lock logic
-                self_nonlocal._lock.release()
-                async with mutex._guard:
-                    mutex._refs[key] -= 1
-                    if mutex._refs[key] == 0:
-                        del mutex._locks[key]
-                        del mutex._refs[key]
+        refs -= 1
+        if refs <= 0:
+            self._locks.pop(key, None)
+            self._refs.pop(key, None)
+        else:
+            self._refs[key] = refs
 
-        return _Guard()
+    def lock(self, key: Hashable) -> _KeyedMutexGuard:
+        return _KeyedMutexGuard(self, key)
