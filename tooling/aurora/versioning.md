@@ -17,6 +17,12 @@ cryptographic labels in `identity.py`, `host.py`, `agentclass.py`, and
 `agentmerger.py`. It does not attempt to catalog every internal integer field
 named `schema_version`.
 
+Some of these version surfaces are Aurora-specific, such as the host and agent
+layer. Others, especially those in `identity.py`, describe the
+`SummonerIdentity` profile currently hosted in Aurora. If another extension
+reuses that identity layer unchanged, those identity versions can remain the
+same even when the surrounding extension is different.
+
 The safest rule is:
 
 > Increase only the version that matches the contract you changed. Do not use a
@@ -46,9 +52,10 @@ Use the following questions to decide which version surface should move.
 Apply these rules every time a version string is considered for a change.
 
 1. Identify the consumer of the value.
-   A wire-format version is consumed by another Aurora identity. A store version
-   is consumed by the local file loader. A host version is consumed by Python
-   callers and tools that inspect `identity_versions()`.
+   A wire-format version is consumed by another implementation of the same
+   identity profile. A store version is consumed by the local file loader. A
+   host version is consumed by Python callers and tools that inspect
+   `identity_versions()`.
 
 2. Decide whether the change is additive or incompatible.
    If older code can still interpret the new value safely and correctly, a

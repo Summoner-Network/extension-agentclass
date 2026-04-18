@@ -1,23 +1,23 @@
-# Aurora Agent Identity Specification
+# Summoner Agent Identity Specification
 
 **Version:** `id.v1` profile  
 **Audience:** clients, enterprise architects, security reviewers, developers,
 and implementers  
-**Scope:** This document defines the current Aurora agent identity model
-implemented by `tooling.aurora.identity.identity.py`.
+**Scope:** This document defines the current agent identity model implemented
+by `SummonerIdentity` and currently hosted in `tooling.aurora.identity`.
 
 This document serves two purposes at the same time:
 
-- it explains, in business and architectural terms, what an Aurora agent
-  identity is and why it matters operationally;
+- it explains, in business and architectural terms, what the current agent
+  identity model is and why it matters operationally;
 - it specifies, in enough technical detail, how to generate, verify, persist,
-  and interpret the current Aurora identity format in another programming
+  and interpret the current public identity format in another programming
   language.
 
 
 ## 1) Abstract
 
-Aurora defines an agent identity as a **self-signed public identity record**
+The current identity model defines an agent identity as a **self-signed public identity record**
 backed by two long-term key pairs:
 
 - an Ed25519 key pair for signatures,
@@ -36,16 +36,17 @@ The design is intentionally compact:
 - one signature,
 - one version tag.
 
-This model gives Aurora three useful properties:
+This model gives agent systems three useful properties:
 
 1. **stable identity continuity**
    An agent can restart, move hosts, or reload state and still present the same
    cryptographic identity if it keeps the same key material.
 
 2. **extensible enterprise context**
-   The `meta` field allows an Aurora identity to carry external identifiers such
-   as tenant IDs, directory IDs, or platform-specific agent identifiers without
-   redefining the cryptographic core of the identity.
+   The `meta` field allows a `SummonerIdentity` public identity record to carry
+   external identifiers such as tenant IDs, directory IDs, or
+   platform-specific agent identifiers without redefining the cryptographic
+   core of the identity.
 
 3. **implementation portability**
    The identity format is simple enough to reproduce in another language, as
@@ -58,8 +59,8 @@ This model gives Aurora three useful properties:
 Different readers usually need different levels of detail. The document is
 organized so each audience can stop at the right depth.
 
-The progression is intentional. [Sections 3 through 6](#3-what-an-aurora-agent-id-is)
-define the conceptual model: what the Aurora agent ID is, why the model
+The progression is intentional. [Sections 3 through 6](#3-what-a-summoner-agent-id-is)
+define the conceptual model: what the current agent ID is, why the model
 exists, what it means in enterprise settings, and how the major identity
 surfaces relate to one another. [Sections 7 through 14](#7-cryptographic-profile)
 then move into the implementation contract: algorithms, schemas,
@@ -72,20 +73,22 @@ without scrolling through the whole document manually.
 
 | Reader | Primary question | Most relevant sections |
 | --- | --- | --- |
-| Client or enterprise sponsor | What is Aurora’s identity model and why is it useful? | [1](#1-abstract), [3](#3-what-an-aurora-agent-id-is), [4](#4-why-this-model-exists), [5](#5-enterprise-and-operational-meaning), [15](#15-metadata-and-enterprise-identifiers), [16](#16-identity-change-semantics) |
-| Enterprise architect | How does identity continuity interact with external enterprise identifiers? | [3](#3-what-an-aurora-agent-id-is), [4](#4-why-this-model-exists), [5](#5-enterprise-and-operational-meaning), [15](#15-metadata-and-enterprise-identifiers), [16](#16-identity-change-semantics) |
+| Client or enterprise sponsor | What is this identity model and why is it useful? | [1](#1-abstract), [3](#3-what-a-summoner-agent-id-is), [4](#4-why-this-model-exists), [5](#5-enterprise-and-operational-meaning), [15](#15-metadata-and-enterprise-identifiers), [16](#16-identity-change-semantics) |
+| Enterprise architect | How does identity continuity interact with external enterprise identifiers? | [3](#3-what-a-summoner-agent-id-is), [4](#4-why-this-model-exists), [5](#5-enterprise-and-operational-meaning), [15](#15-metadata-and-enterprise-identifiers), [16](#16-identity-change-semantics) |
 | Security reviewer | What is signed, what is stored locally, and what changes continuity? | [6](#6-identity-surfaces), [7](#7-cryptographic-profile), [8](#8-public-identity-record), [9](#9-canonical-json-for-signing), [13](#13-local-identity-file-format), [16](#16-identity-change-semantics) |
-| Developer or integrator | How do I generate and verify an Aurora identity? | [8](#8-public-identity-record), [9](#9-canonical-json-for-signing), [10](#10-identity-generation-algorithm), [11](#11-public-identity-verification-algorithm), [12](#12-fingerprint-derivation), [13](#13-local-identity-file-format), [14](#14-local-identity-file-generation-and-loading), [17](#17-minimum-compliance-checklist) |
+| Developer or integrator | How do I generate and verify a `SummonerIdentity` public identity record? | [8](#8-public-identity-record), [9](#9-canonical-json-for-signing), [10](#10-identity-generation-algorithm), [11](#11-public-identity-verification-algorithm), [12](#12-fingerprint-derivation), [13](#13-local-identity-file-format), [14](#14-local-identity-file-generation-and-loading), [17](#17-minimum-compliance-checklist) |
 | Implementer in another language | What exact bytes and encodings must I reproduce? | [7](#7-cryptographic-profile), [8](#8-public-identity-record), [9](#9-canonical-json-for-signing), [10](#10-identity-generation-algorithm), [11](#11-public-identity-verification-algorithm), [12](#12-fingerprint-derivation), [13](#13-local-identity-file-format), [14](#14-local-identity-file-generation-and-loading), [17](#17-minimum-compliance-checklist) |
 
 
-## 3) What an Aurora agent ID is
+## 3) What a Summoner agent ID is
 
-Aurora does not define agent identity as a separate application string such as
+This identity model does not define agent identity as a separate application
+string such as
 `my_id`.
 
-That is the first idea a reader should anchor on before going further. Aurora
-does not treat the agent ID as a label that floats separately from the
+That is the first idea a reader should anchor on before going further. This
+identity model does not treat the agent ID as a label that floats separately
+from the
 cryptographic material. It treats identity as a signed object that can travel
 between runtimes, be embedded in envelopes, and be verified independently by a
 peer.
@@ -104,12 +107,13 @@ itself:
 }
 ```
 
-This object is the portable identity boundary for Aurora agents.
+This object is the portable identity boundary for agents using
+`SummonerIdentity`.
 
-In other words, when one Aurora agent introduces itself to another, this is the
-object it presents. The receiving side does not need an external registry to
-understand the cryptographic shape of the identity. Everything needed to verify
-the public claim set is already inside the record.
+In other words, when one agent using this identity model introduces itself to
+another, this is the object it presents. The receiving side does not need an
+external registry to understand the cryptographic shape of the identity.
+Everything needed to verify the public claim set is already inside the record.
 
 It tells other parties:
 
@@ -119,8 +123,9 @@ It tells other parties:
 - which optional claims are attached to the identity,
 - and that the holder of the Ed25519 private key has signed that claim set.
 
-Aurora also defines a short fingerprint derived from `pub_sig_b64`, but that
-fingerprint is only a local convenience index. It is not the full identity.
+The current identity model also defines a short fingerprint derived from
+`pub_sig_b64`, but that fingerprint is only a local convenience index. It is
+not the full identity.
 
 That distinction matters throughout this document. The public identity record
 is the object that carries meaning between agents. The fingerprint is a local
@@ -129,12 +134,12 @@ shortcut derived from one field inside that record.
 
 ## 4) Why this model exists
 
-Aurora’s identity model is designed for agent systems that need continuity,
+This identity model is designed for agent systems that need continuity,
 security, and operational clarity without depending on an external registry.
 
 This section explains the design intent before the document becomes more
-technical. The goal is not only to describe what Aurora does, but also to make
-clear why the current shape is useful for real deployments.
+technical. The goal is not only to describe what the identity layer does, but
+also to make clear why the current shape is useful for real deployments.
 
 ### 4.1) Stable continuity
 
@@ -142,13 +147,14 @@ When the same identity file is reused, the same public identity record can be
 reconstructed and presented again. This allows peers to recognize the same
 agent across restarts or migrations.
 
-That property is central to Aurora’s session and continuity model. An agent is
+That property is central to the surrounding session and continuity model. An
+agent is
 not expected to renegotiate a brand-new persona every time its process restarts.
 It can carry a stable cryptographic identity forward over time.
 
 ### 4.2) Clear cryptographic roles
 
-Aurora separates:
+The model separates:
 
 - **authentication and signing**, handled by Ed25519,
 - **key agreement**, handled by X25519.
@@ -172,13 +178,13 @@ to real organizations.
 
 ### 4.4) Local-first operability
 
-Aurora does not require a registry, chain, or remote identity service to create
-or validate the base identity record. An agent can generate, store, and reload
-its identity locally.
+The model does not require a registry, chain, or remote identity service to
+create or validate the base identity record. An agent can generate, store, and
+reload its identity locally.
 
 That does not prevent an organization from adding a registry or directory above
-Aurora. It means only that the base cryptographic identity format is valid on
-its own and does not depend on those external systems to exist.
+this identity layer. It means only that the base cryptographic identity format
+is valid on its own and does not depend on those external systems to exist.
 
 
 ## 5) Enterprise and operational meaning
@@ -189,9 +195,10 @@ concerns cleanly:
 The table below translates the technical model into operational language. Many
 enterprise teams do not reason directly in terms of JSON objects and key
 formats; they reason in terms of principals, claims, and operational handles.
-Aurora can be mapped to those concepts without changing its underlying design.
+This identity model can be mapped to those concepts without changing its
+underlying design.
 
-| Concern | Aurora surface |
+| Concern | Identity surface |
 | --- | --- |
 | Cryptographic principal | `pub_sig_b64` + `pub_enc_b64` |
 | Signed identity claims | the public identity record, including `meta` |
@@ -208,9 +215,10 @@ reason about the signed claim set.
 
 An enterprise can treat the public identity record as the portable ID card of
 the agent. As long as the same keys are retained, the agent continues to be the
-same Aurora principal even if metadata evolves.
+same cryptographic principal even if metadata evolves.
 
-That is the part that makes Aurora suitable for long-lived workloads. The
+That is the part that makes the identity layer suitable for long-lived
+workloads. The
 identity can accumulate richer metadata over time without being treated as a
 different cryptographic subject.
 
@@ -229,20 +237,22 @@ Those values belong in `meta`.
 This is not a side channel or an afterthought. It is the intended extension
 surface for external identity context.
 
-Aurora signs them as part of the public identity record, which means the Aurora
-principal is asserting them. It does **not** mean Aurora alone becomes the
-source of truth for those external systems. External policy can still decide
-which signed claims are trusted.
+The identity record signs them as part of the public identity record, which
+means the cryptographic principal is asserting them. It does **not** mean the
+identity layer alone becomes the source of truth for those external systems.
+External policy can still decide which signed claims are trusted.
 
 That distinction is often the most important one for enterprise architects.
-Aurora can carry the signed claim, but the enterprise still decides whether that
-claim is authoritative enough for routing, access control, audit, or policy.
+The identity layer can carry the signed claim, but the enterprise still decides
+whether that claim is authoritative enough for routing, access control, audit,
+or policy.
 
 ### 5.3) Investor and client significance
 
 For non-implementers, the strategic point is simple:
 
-> Aurora gives agents a portable, cryptographically verifiable identity that can
+> This identity model gives agents a portable, cryptographically verifiable
+> identity that can
 > carry enterprise context without forcing a relationship reset every time that
 > context evolves.
 
@@ -251,13 +261,13 @@ That makes it suitable for:
 - stable enterprise agent deployments,
 - multi-tenant platforms,
 - regulated environments that need continuity and auditability,
-- and platforms that need to map Aurora identities to external directory or IAM
+- and platforms that need to map these identities to external directory or IAM
   systems.
 
 
 ## 6) Identity surfaces
 
-Aurora uses three related but distinct identity surfaces.
+The current identity layer uses three related but distinct identity surfaces.
 
 This distinction prevents confusion later in the document. Readers often use
 the words “identity,” “fingerprint,” and “identity file” interchangeably, but
@@ -281,11 +291,11 @@ interoperate correctly.
 
 ## 7) Cryptographic profile
 
-Aurora identity generation uses the following primitives:
+The current identity profile uses the following primitives:
 
 This section defines the cryptographic contract of the identity layer. An
 implementation in another language does not have freedom to swap these
-primitives if it wants to remain compatible with the current Aurora profile.
+primitives if it wants to remain compatible with the current identity profile.
 
 | Purpose | Algorithm |
 | --- | --- |
@@ -303,10 +313,10 @@ Both public and private keys are serialized in **raw 32-byte form** before
 Base64 encoding.
 
 That detail is operationally important. Many libraries default to PEM, DER, or
-other container formats. Aurora does not. Compatibility requires the raw 32-byte
-form before Base64 encoding.
+other container formats. This profile does not. Compatibility requires the raw
+32-byte form before Base64 encoding.
 
-| Key type | Raw length | Encoding in Aurora |
+| Key type | Raw length | Encoding in this profile |
 | --- | --- | --- |
 | X25519 public key | 32 bytes | standard Base64 |
 | X25519 private key | 32 bytes | standard Base64 |
@@ -343,7 +353,7 @@ The public identity record has this logical structure:
 
 The table below should be read as a contract, not as informal documentation.
 Fields that are marked required are required for successful verification in the
-current Aurora implementation.
+current reference implementation.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -356,11 +366,11 @@ current Aurora implementation.
 
 ### 8.3) Signed public core
 
-Aurora signs only the public core:
+The current identity profile signs only the public core:
 
 This is one of the most important implementation details in the whole document.
 If another implementation signs the full final object instead of the public
-core, its signatures will not verify against Aurora.
+core, its signatures will not verify against the reference implementation.
 
 ```json
 {
@@ -388,7 +398,8 @@ not.
 This means:
 
 - if `meta` is omitted, it is not signed because it is absent,
-- if `meta` is explicitly `null`, Aurora treats it as absent for signing,
+- if `meta` is explicitly `null`, the current profile treats it as absent for
+  signing,
 - if `meta` has any non-null JSON value, that value is signed.
 
 For interoperability, generators should prefer:
@@ -399,7 +410,8 @@ For interoperability, generators should prefer:
 
 ## 9) Canonical JSON for signing
 
-Aurora signs the canonical JSON encoding of the public core.
+The current identity profile signs the canonical JSON encoding of the public
+core.
 
 This section is load-bearing. Most cross-language incompatibilities do not come
 from the signature algorithm itself; they come from different JSON
@@ -436,7 +448,7 @@ to hope that two runtimes happen to encode it identically.
   non-string keys inside `meta`.
 
 If another language cannot reproduce these exact rules, it should not claim to
-emit Aurora-compatible signed identities.
+emit compatible signed identities for this profile.
 
 
 ## 10) Identity generation algorithm
@@ -445,7 +457,7 @@ This section is normative.
 
 Everything up to this point has prepared the reader to understand what is being
 generated. This section now describes the actual write-side process: how a
-runtime creates an Aurora identity record from fresh key material.
+runtime creates a public identity record from fresh key material.
 
 ### 10.1) What is being built
 
@@ -464,8 +476,8 @@ process like this:
 
 Another way to say the same thing is:
 
-> Aurora turns a pair of long-term keys and a timestamp into a signed identity
-> card for the agent.
+> This identity model turns a pair of long-term keys and a timestamp into a
+> signed identity card for the agent.
 
 The table below shows that story at a glance.
 
@@ -479,8 +491,8 @@ The table below shows that story at a glance.
 
 ### 10.2) Inputs
 
-To generate an Aurora identity, an implementation needs only a small set of
-inputs:
+To generate a public identity record in this model, an implementation needs
+only a small set of inputs:
 
 - a fresh X25519 key pair,
 - a fresh Ed25519 key pair,
@@ -555,8 +567,8 @@ If `meta` is not used, omit it entirely. Do not include it as a decorative
 placeholder.
 
 This is the object that the agent is about to sign. It is not yet a complete
-Aurora identity, because it does not yet prove that the holder of the Ed25519
-private key stands behind the claim set.
+public identity record in this model, because it does not yet prove that the
+holder of the Ed25519 private key stands behind the claim set.
 
 #### Step 4: canonicalize and sign
 
@@ -624,7 +636,7 @@ signature over those claims
     +
 format version
     =
-Aurora public identity record
+Summoner public identity record
 ```
 
 ### 10.5) Reference pseudocode
@@ -678,7 +690,7 @@ To verify a public identity record:
 8. Verify the signature over the canonical UTF-8 bytes.
 
 If any one of those steps fails, the public identity record must be rejected.
-The current Aurora behavior is fail-closed rather than best-effort.
+The current behavior is fail-closed rather than best-effort.
 
 ### 11.1) Reference pseudocode
 
@@ -711,7 +723,8 @@ function verify_public_identity(public_id):
 
 ## 12) Fingerprint derivation
 
-Aurora also defines a short fingerprint used for local indexing.
+The current identity profile also defines a short fingerprint used for local
+indexing.
 
 This section is separate from the identity record itself because the fingerprint
 serves a different purpose. It is a local handle derived from the signing key,
@@ -770,7 +783,8 @@ It is **not** a substitute for verifying the full public identity record.
 
 ## 13) Local identity-file format
 
-Aurora stores private identity material in a local JSON file.
+The current implementation stores private identity material in a local JSON
+file.
 
 The public identity record is the portable object exchanged between agents. The
 identity file is different: it is a local persistence artifact that contains
@@ -842,11 +856,12 @@ summoner/identity_file/v1
 
 ### 13.3) Encrypted private payload
 
-The inner payload is intentionally small. Aurora encrypts only the private key
+The inner payload is intentionally small. The implementation encrypts only the
+private key
 material, not the public identity record, because peers still need the public
 record to be portable and inspectable.
 
-Before encryption, Aurora serializes this object canonically:
+Before encryption, the implementation serializes this object canonically:
 
 ```json
 {
@@ -864,11 +879,11 @@ The ciphertext is:
 
 ### 13.4) KDF parameters
 
-Aurora’s current defaults are:
+The current defaults are:
 
 These parameters are not incidental implementation details. A runtime that
 writes encrypted identity files needs to follow them or write explicit
-parameter values into the file, exactly as Aurora does.
+parameter values into the file, exactly as the reference implementation does.
 
 | Parameter | Value |
 | --- | --- |
@@ -986,8 +1001,9 @@ function load_identity(path, password?):
 `meta` is the intended extension surface for additional signed identity claims.
 
 This section returns from pure format specification to enterprise semantics.
-`meta` is where Aurora becomes practically useful for organizations that need to
-map cryptographic principals to business, governance, or directory context.
+`meta` is where this identity model becomes practically useful for
+organizations that need to map cryptographic principals to business,
+governance, or directory context.
 
 Examples:
 
@@ -1016,17 +1032,17 @@ and, just as importantly, what kind of identity change it is not.
 Changing `meta` while keeping the same `pub_sig_b64` and `pub_enc_b64` does
 **not** break continuity by itself.
 
-Aurora continuity and local storage are keyed from the long-term key material,
-not from the full JSON identity object.
+Continuity and local storage in this model are keyed from the long-term key
+material, not from the full JSON identity object.
 
 This is why enterprise enrichment can happen without forcing every peer to
 treat the agent as a new principal.
 
 ### 15.3) Authority meaning
 
-`meta` is signed by the Aurora signing key, which means:
+`meta` is signed by the identity signing key, which means:
 
-- the Aurora principal is asserting the metadata,
+- the cryptographic principal is asserting the metadata,
 
 but it does **not** automatically mean:
 
@@ -1037,9 +1053,10 @@ but it does **not** automatically mean:
 Enterprises that use `meta` for authorization-sensitive identifiers should
 validate those claims against their own source of truth.
 
-That division of responsibility is often the right architectural one: Aurora
-proves continuity of the principal, while enterprise policy decides how much
-authority to assign to the metadata attached to that principal.
+That division of responsibility is often the right architectural one: the
+identity layer proves continuity of the principal, while enterprise policy
+decides how much authority to assign to the metadata attached to that
+principal.
 
 
 ## 16) Identity change semantics
@@ -1074,12 +1091,12 @@ creates a new identity boundary.
 
 ## 17) Minimum compliance checklist
 
-An implementation may claim compatibility with the current Aurora identity
-format only if it does all of the following:
+An implementation may claim compatibility with the current identity profile
+used by `SummonerIdentity` only if it does all of the following:
 
 This checklist is intentionally strict. It is meant to answer a practical
 question for implementers and reviewers: when is another implementation merely
-similar to Aurora, and when is it actually compatible with Aurora?
+similar to the current profile, and when is it actually compatible with it?
 
 - generates raw 32-byte X25519 and Ed25519 key material,
 - serializes public keys as standard Base64 of raw bytes,
@@ -1118,7 +1135,7 @@ This example is illustrative. The key values and signature are placeholders.
 
 ## Appendix B) Final interpretation
 
-Aurora’s current identity model is intentionally compact:
+The current identity model is intentionally compact:
 
 This closing summary restates the model in its simplest form so that the reader
 can leave the document with one clear mental picture rather than a scattered

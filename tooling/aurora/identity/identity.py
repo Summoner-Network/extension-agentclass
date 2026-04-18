@@ -1,5 +1,5 @@
 # =============================================================================
-# SummonerIdentity Crypto Framework (aurora identity)
+# SummonerIdentity Crypto Framework
 # =============================================================================
 """
 This module defines a compact crypto framework for agent-to-agent messaging based on:

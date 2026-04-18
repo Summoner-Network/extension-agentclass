@@ -110,7 +110,7 @@ documentation, and tests.
 | Path | Role |
 | --- | --- |
 | [`tooling/aurora`](tooling/aurora) | Aurora extension package |
-| [`tooling/aurora/identity`](tooling/aurora/identity) | Aurora identity documentation and identity-layer exports |
+| [`tooling/aurora/identity`](tooling/aurora/identity) | `SummonerIdentity` documentation and identity-layer exports currently hosted in Aurora |
 | [`tests/test_aurora_agent`](tests/test_aurora_agent) | End-to-end Aurora agent example and supporting notes |
 | [`tests/test_identity`](tests/test_identity) | Identity and controls test suite |
 | [`core`](core) | Local `summoner-core` reference / integration workspace |

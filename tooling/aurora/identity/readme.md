@@ -39,7 +39,7 @@ in dedicated notes.
 | Document | Purpose |
 | --- | --- |
 | `tooling/aurora/identity_meta.md` | How `meta` affects fingerprints, public identity records, and continuity |
-| `tooling/aurora/did_documentation.md` | Language-agnostic specification for the current Aurora agent identity record and local identity-file format |
+| `tooling/aurora/did_documentation.md` | Language-agnostic specification for the current `SummonerIdentity` public identity record and local identity-file format |
 | `tooling/aurora/versioning.md` | Version lifecycle across identity, host, agent, and merger surfaces |
 
 ## Contents

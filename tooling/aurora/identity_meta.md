@@ -1,4 +1,4 @@
-# `meta` and Identity Continuity in Aurora
+# `meta` and Identity Continuity in `SummonerIdentity`
 
 This note explains how the `meta` field in `SummonerIdentity` affects identity,
 fingerprints, and continuity between agents.
@@ -10,14 +10,16 @@ The short answer is:
 - adding or removing `meta` fields does **not** break session continuity as
   long as the same underlying keys remain in use.
 
-That distinction is important for enterprise deployments. It allows Aurora
-identities to carry additional directory or platform identifiers in `meta`
-without forcing a relationship reset every time metadata evolves.
+That distinction is important for enterprise deployments. It allows
+`SummonerIdentity` records to carry additional directory or platform
+identifiers in `meta` without forcing a relationship reset every time metadata
+evolves.
 
 
 ## 1) What `meta` is
 
-A public Aurora identity record contains the following core fields:
+A public identity record in `SummonerIdentity` contains the following core
+fields:
 
 - `created_at`
 - `pub_enc_b64`
@@ -64,7 +66,7 @@ The table below summarizes the effect.
 
 ## 3) Why `id_fingerprint(...)` does not change
 
-Aurora computes the fingerprint from the signing public key only:
+`SummonerIdentity` computes the fingerprint from the signing public key only:
 
 ```python
 def id_fingerprint(pub_sig_b64: str) -> str:
@@ -79,15 +81,15 @@ This means:
 - changing `created_at` does not change the fingerprint,
 - only changing the signing public key changes the fingerprint.
 
-In Aurora, the fingerprint is therefore a stable local identifier for the
-cryptographic signer, not for the entire JSON shape of the public identity
-record.
+In the current identity model, the fingerprint is therefore a stable local
+identifier for the cryptographic signer, not for the entire JSON shape of the
+public identity record.
 
 
 ## 4) Why continuity is preserved when `meta` changes
 
-Aurora continuity is anchored to the peer’s keys and fingerprinted direction,
-not to the current contents of `meta`.
+Continuity in `SummonerIdentity` is anchored to the peer’s keys and
+fingerprinted direction, not to the current contents of `meta`.
 
 In the current implementation:
 
@@ -132,7 +134,8 @@ it as the same agent identity.
 
 ### Scenario A: add an enterprise directory identifier
 
-Suppose an agent already has an Aurora identity and later adds this metadata:
+Suppose an agent already has a `SummonerIdentity` public identity record and
+later adds this metadata:
 
 ```json
 {
@@ -180,7 +183,8 @@ Effect:
 
 ### Scenario C: change only the metadata for one process run
 
-Aurora also allows an in-memory metadata override during envelope creation:
+`SummonerIdentity` also allows an in-memory metadata override during envelope
+creation:
 
 ```python
 envelope = await identity.seal_envelope(
@@ -227,10 +231,10 @@ This is not a metadata update. It is an identity rotation.
 
 For enterprise deployments, the right mental model is:
 
-> `meta` is a signed claim set carried by the Aurora identity record.
+> `meta` is a signed claim set carried by the public identity record.
 
-That is useful because it allows a single Aurora identity to carry external
-references such as:
+That is useful because it allows a single `SummonerIdentity` record to carry
+external references such as:
 
 - Entra agent identifiers,
 - internal IAM subject identifiers,
@@ -240,15 +244,15 @@ references such as:
 
 This is especially useful when the enterprise wants:
 
-- stable continuity anchored to the Aurora keys,
+- stable continuity anchored to the same identity keys,
 - but evolving business or directory identifiers attached to the same agent.
 
 
 ## 8) What `meta` does **not** prove by itself
 
-`meta` is signed by the Aurora identity’s signing key. That proves:
+`meta` is signed by the identity’s signing key. That proves:
 
-- the holder of the current Aurora signing key is asserting this metadata.
+- the holder of the current signing key is asserting this metadata.
 
 It does **not** automatically prove:
 
@@ -257,13 +261,13 @@ It does **not** automatically prove:
 - that the agent is allowed to act under that external identifier,
 - or that an external directory agrees with the claim.
 
-If an enterprise wants `meta` to be authoritative, Aurora should be combined
-with application or policy checks that validate the metadata against the
-external source of truth.
+If an enterprise wants `meta` to be authoritative, `SummonerIdentity` should
+be combined with application or policy checks that validate the metadata
+against the external source of truth.
 
 In practice, the safe interpretation is:
 
-- Aurora proves continuity of the cryptographic principal,
+- `SummonerIdentity` proves continuity of the cryptographic principal,
 - `meta` carries signed claims about that principal,
 - enterprise policy decides which of those claims are trusted for access control
   or routing decisions.
@@ -297,10 +301,10 @@ Keep the following rule in mind:
 
 ## 10) Operational guidance
 
-When an enterprise platform adds additional identifiers to Aurora identities,
-the safest pattern is:
+When an enterprise platform adds additional identifiers to identities using
+`SummonerIdentity`, the safest pattern is:
 
-1. keep the Aurora signing and encryption keys stable for the life of the
+1. keep the signing and encryption keys stable for the life of the
    identity relationship,
 2. put external directory identifiers in `meta`,
 3. treat those fields as signed claims, not as automatic authority,
@@ -322,9 +326,10 @@ This gives the platform two useful properties at the same time:
 Adding or removing metadata:
 
 - changes the signed public identity record,
-- does not change the Aurora fingerprint,
+- does not change the fingerprint,
 - does not reset continuity by itself,
 - and allows enterprise identifiers to travel with the same cryptographic
   principal.
 
-The continuity boundary in Aurora is the key material, not the metadata.
+The continuity boundary in this identity model is the key material, not the
+metadata.
