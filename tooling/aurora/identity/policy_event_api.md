@@ -82,9 +82,7 @@ Trust-boundary reminder:
 
 ## 4) Registration API
 
-Handlers register per `SummonerIdentity` instance, and event emission is
-centralized in the lifecycle return path. That keeps callback behavior
-predictable and makes downstream analytics easier to reason about.
+Handlers register per `SummonerIdentity` instance, and event emission is centralized in the lifecycle return path. That keeps callback behavior predictable and makes downstream analytics easier to reason about.
 
 ## 4.1 `on_policy_event(phase=...)`
 
@@ -148,8 +146,7 @@ Handlers are easy to register, and event emission is centralized and consistent.
 
 ## 5) Event contract
 
-The schema below is the stable contract between `SummonerIdentity` and the
-telemetry pipeline that consumes these events.
+The schema below is the stable contract between `SummonerIdentity` and the telemetry pipeline that consumes these events.
 
 ## 5.1 Base context (always present)
 
@@ -239,8 +236,7 @@ Note:
   semantics such as `replaced_active_incomplete`.
   A successful discovery verification can still promote a peer into the verified-peer set.
 
-Summary: base keys are stable, optional keys are deliberate, and phase identifies lifecycle position.
-That combination is what allows you to keep parsers strict while still writing flexible, defensive handlers.
+Summary: base keys are stable, optional keys are deliberate, and phase identifies lifecycle position. That combination is what allows you to keep parsers strict while still writing flexible, defensive handlers.
 
 ## 6) Open-envelope pipeline and stage taxonomy
 
@@ -645,8 +641,7 @@ If these six items are in place, you have the minimum viable production posture 
 
 ## 15) Related documents
 
-Use these documents for implementation details, broader security context, and quick operational lookup.
-Read order suggestion: implementation first (`identity.py`), then this guide, then the security report for threat framing, and finally the cheatsheet for daily operator reference.
+Use these documents for implementation details, broader security context, and quick operational lookup. Read order suggestion: implementation first (`identity.py`), then this guide, then the security report for threat framing, and finally the cheatsheet for daily operator reference.
 
 - `tooling/aurora/identity/identity.py`
 - `tooling/aurora/identity/readme.md`

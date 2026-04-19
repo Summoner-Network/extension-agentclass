@@ -39,7 +39,7 @@ in dedicated notes.
 | Document | Purpose |
 | --- | --- |
 | `tooling/aurora/identity_meta.md` | How `meta` affects fingerprints, public identity records, and continuity |
-| `tooling/aurora/did_documentation.md` | Language-agnostic specification for the current `SummonerIdentity` public identity record and local identity-file format |
+| `tooling/aurora/identity_spec.md` | Language-agnostic specification for the current `SummonerIdentity` public identity record and local identity-file format |
 | `tooling/aurora/versioning.md` | Version lifecycle across identity, host, agent, and merger surfaces |
 
 ## Contents
@@ -3646,7 +3646,7 @@ def my_reset_session(peer_public_id, local_role):
 ### Forward secrecy note
 
 This protocol **does not provide forward secrecy** by default because it uses static X25519 identity keys.
-The history hash/history_proof mechanism is about **continuity and decentralized identity**, not secrecy:
+The history hash/history_proof mechanism is about **continuity and portable agent identity**, not secrecy:
 it lets a peer prove knowledge of a rolling history hash without revealing it.
 
 If you need forward secrecy, add ephemeral X25519 keys per session (or per message) and mix them into
