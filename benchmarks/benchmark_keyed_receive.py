@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+
 target_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if target_path not in sys.path:
     sys.path.insert(0, target_path)
@@ -132,6 +133,12 @@ def _format_rate(value: float) -> str:
     return f"{value:,.0f}"
 
 
+def _find_result(results: list[dict[str, Any]], *, mode: str, case: str) -> dict[str, Any]:
+    return next(
+        result for result in results if result["mode"] == mode and result["case"] == case
+    )
+
+
 def run_case(
     case: BenchmarkCase,
     *,
@@ -194,7 +201,12 @@ def run_case(
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Benchmark Aurora keyed_receive under burst load.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Benchmark Aurora keyed_receive under burst load and, optionally, "
+            "compare it against a plain @receive baseline."
+        )
+    )
     parser.add_argument("--messages", type=int, default=20000, help="Messages to push through each case.")
     parser.add_argument("--keys", type=int, default=128, help="Distinct keys for the many-key cases.")
     parser.add_argument("--rounds", type=int, default=5, help="Measured rounds per case.")
@@ -219,29 +231,26 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
-    cases = [
+    keyed_cases = [
         BenchmarkCase(name="same_key_no_seq", mode="keyed", use_seq=False, keys=1, replay_stride=0),
         BenchmarkCase(name="same_key_seq", mode="keyed", use_seq=True, keys=1, replay_stride=0),
         BenchmarkCase(name="many_keys_seq", mode="keyed", use_seq=True, keys=max(1, args.keys), replay_stride=0),
         BenchmarkCase(name="many_keys_replay", mode="keyed", use_seq=True, keys=max(1, args.keys), replay_stride=3),
     ]
+
+    cases = list(keyed_cases)
     if args.compare_receive:
-        cases.extend([
-            BenchmarkCase(name="same_key_no_seq", mode="receive", use_seq=False, keys=1, replay_stride=0),
-            BenchmarkCase(name="same_key_seq", mode="receive", use_seq=True, keys=1, replay_stride=0),
-            BenchmarkCase(name="many_keys_seq", mode="receive", use_seq=True, keys=max(1, args.keys), replay_stride=0),
-            BenchmarkCase(name="many_keys_replay", mode="receive", use_seq=True, keys=max(1, args.keys), replay_stride=3),
-        ])
+        cases.extend(
+            [
+                BenchmarkCase(name="same_key_no_seq", mode="receive", use_seq=False, keys=1, replay_stride=0),
+                BenchmarkCase(name="same_key_seq", mode="receive", use_seq=True, keys=1, replay_stride=0),
+                BenchmarkCase(name="many_keys_seq", mode="receive", use_seq=True, keys=max(1, args.keys), replay_stride=0),
+                BenchmarkCase(name="many_keys_replay", mode="receive", use_seq=True, keys=max(1, args.keys), replay_stride=3),
+            ]
+        )
 
-    print(
-        "mode     case                  messages  keys  accepted  dropped  best_s   mean_s   msg/s    accepted/s  hist  evict"
-    )
-    print(
-        "-------  --------------------  --------  ----  --------  -------  -------  -------  -------  ----------  ----  -----"
-    )
-
-    for case in cases:
-        result = run_case(
+    results = [
+        run_case(
             case,
             messages=args.messages,
             rounds=args.rounds,
@@ -250,6 +259,17 @@ def main(argv: list[str]) -> int:
             handler_sleep=max(0.0, args.handler_sleep),
             seq_history_max_entries=args.seq_history_max_entries,
         )
+        for case in cases
+    ]
+
+    print(
+        "mode     case                  messages  keys  accepted  dropped  best_s   mean_s   msg/s    accepted/s  hist  evict"
+    )
+    print(
+        "-------  --------------------  --------  ----  --------  -------  -------  -------  -------  ----------  ----  -----"
+    )
+
+    for result in results:
         print(
             f"{result['mode']:<7}  "
             f"{result['case']:<20}  "
@@ -267,10 +287,63 @@ def main(argv: list[str]) -> int:
 
     if args.compare_receive:
         print()
+        print("delta vs receive baseline")
         print(
-            "Note: receive rows are an unsafe baseline. They measure plain @receive throughput "
-            "without per-key serialization or replay dropping."
+            "case                  accepted_delta  dropped_delta  replay_hist_extra  replay_evict_extra  best_delta_s  mean_delta_s  best_ratio_vs_keyed  mean_ratio_vs_keyed"
         )
+        print(
+            "--------------------  --------------  -------------  -----------------  ------------------  ------------  ------------  -------------------  -------------------"
+        )
+
+        for case in keyed_cases:
+            keyed_result = _find_result(results, mode="keyed", case=case.name)
+            receive_result = _find_result(results, mode="receive", case=case.name)
+            accepted_delta = keyed_result["accepted"] - receive_result["accepted"]
+            dropped_delta = keyed_result["dropped"] - receive_result["dropped"]
+            replay_entries_extra = keyed_result["replay_entries"] - receive_result["replay_entries"]
+            replay_evictions_extra = keyed_result["replay_evictions"] - receive_result["replay_evictions"]
+            best_delta_s = receive_result["best_seconds"] - keyed_result["best_seconds"]
+            mean_delta_s = receive_result["mean_seconds"] - keyed_result["mean_seconds"]
+            best_ratio_vs_keyed = (
+                receive_result["best_seconds"] / keyed_result["best_seconds"]
+                if keyed_result["best_seconds"] > 0
+                else float("inf")
+            )
+            mean_ratio_vs_keyed = (
+                receive_result["mean_seconds"] / keyed_result["mean_seconds"]
+                if keyed_result["mean_seconds"] > 0
+                else float("inf")
+            )
+            print(
+                f"{case.name:<20}  "
+                f"{accepted_delta:>14}  "
+                f"{dropped_delta:>13}  "
+                f"{replay_entries_extra:>17}  "
+                f"{replay_evictions_extra:>18}  "
+                f"{best_delta_s:>12.4f}  "
+                f"{mean_delta_s:>12.4f}  "
+                f"{best_ratio_vs_keyed:>19.3f}  "
+                f"{mean_ratio_vs_keyed:>19.3f}"
+            )
+
+    print()
+    print("Interpretation:")
+    print("- `keyed` rows measure the protected keyed_receive path, including per-key serialization and optional replay dropping.")
+    if args.compare_receive:
+        print("- `receive` rows are an unsafe throughput baseline: they omit per-key serialization and do not reject replayed seq payloads.")
+        print("- `accepted_delta` is `keyed - receive`; negative values on replay cases are expected when keyed_receive suppresses duplicates that plain receive accepts.")
+        print("- `dropped_delta` is `keyed - receive`; positive values mean keyed_receive rejected more payloads than the plain baseline.")
+        print("- `best_delta_s` and `mean_delta_s` are `receive - keyed`, so positive values mean keyed_receive was faster and negative values mean the plain baseline was faster.")
+        print("- When `best` and `mean` disagree on direction, treat the result as parity/noise rather than a reliable win for either side.")
+    else:
+        print("- Use `--compare-receive` to add the plain @receive baseline and the keyed-vs-baseline differential table.")
+    print("- `same_key_*` cases emphasize one hot key, while `many_keys_*` cases spread traffic across many independent keys.")
+    print("- `many_keys_replay` intentionally injects repeated seq values so keyed_receive can demonstrate duplicate suppression.")
+    print("- For replay effects to show up clearly, `messages` should be large enough relative to `keys` that each key receives multiple seq-bearing payloads; tiny runs can legitimately show zero replay drops.")
+    print("- `hist` shows replay-history entries retained after the run; `evict` shows replay-history evictions when a seq history cap is in effect.")
+    if args.seq_history_max_entries is not None:
+        print("- `--seq-history-max-entries` changes the memory/eviction tradeoff for seq tracking and can shorten how long replays remain suppressible.")
+    print("- Tiny runs are timing-noisy; use larger `--messages` values when comparing elapsed time.")
 
     return 0
 
