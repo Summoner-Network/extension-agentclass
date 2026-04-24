@@ -74,7 +74,7 @@ Streaming uses the same session proof envelope, with additional fields:
   "ts": 1730000000,
   "ttl": 120,
   "history_proof": null,
-  "age": 0,
+  "age": null,
   "mode": "stream",
   "stream": {
     "id": "a1b2c3d4e5f6a7b8",
@@ -93,9 +93,9 @@ frames even though `1_nonce` stays `null`.
 
 Age note:
 
-- `age: 0` in the example is illustrative only.
-- In ordinary reply/continue paths, the implementation preserves the active
-  continuity age when available instead of resetting it to zero.
+- Non-start stream records emit `age: null`.
+- The active continuity age is preserved as local `current_link.age` state,
+  not as mid-session wire metadata.
 
 Normalization and validity rules:
 
@@ -210,8 +210,8 @@ Streaming behavior:
 4. `stream=True` with `peer_public_id=None` is rejected (`stream_mode_unsupported`).
 5. If the current link is missing or stale, role 0 may restart through
    `start_session(...)`, while role 1 fails closed.
-6. Non-stream continue preserves the active continuity `age` when available,
-   falling back to the peer-presented age only when needed.
+6. Non-stream continue emits `age: null` and preserves the authoritative
+   continuity age in local session state.
 
 ## 4.3 `advance_stream_session(...)`
 
@@ -349,6 +349,7 @@ full file format is versioned and uses `__summoner_identity_store__`, `v`, and
 | `stream_mode` | Single vs stream tracking for current link. |
 | `stream_id` | Active/closed stream identity. |
 | `stream_phase` | Last accepted stream phase (`start/chunk/end/interrupted`). |
+| `age` | Locally stored continuity age for the active lane. |
 | `expected_next_seq` | Contiguous sequence validator state. |
 | `stream_active` | Active vs closed marker. |
 | `stream_last_ts` | Timestamp of last accepted stream frame. |

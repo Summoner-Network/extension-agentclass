@@ -106,13 +106,16 @@ Aurora. Those values fall into four categories:
 - `ENV_VERSION`, `PAYLOAD_ENC_VERSION`, and `HISTORY_PROOF_VERSION` should be
   thought of as interoperability boundaries. If two Aurora runtimes do not agree
   on these values, they should not silently interoperate.
+- A nullable/non-nullable change in a non-start `session_proof` field does not
+  automatically require an `ENV_VERSION` bump if readers still accept both old
+  and new envelopes safely and unambiguously.
 
 
 ### 3.2) Fallback-store document schemas
 
 | Constant | Current value | Governs | Increase when | Do not increase when |
 | --- | --- | --- | --- | --- |
-| `SESSIONS_STORE_VERSION` | `sessions.store.v1` | Wrapped `sessions.json` schema | The on-disk `sessions.json` document shape changes | Runtime session logic changes but `sessions.json` keeps the same wrapped schema |
+| `SESSIONS_STORE_VERSION` | `sessions.store.v2` | Wrapped `sessions.json` schema | The on-disk `sessions.json` document shape changes | Runtime session logic changes but `sessions.json` keeps the same wrapped schema |
 | `PEER_KEYS_STORE_VERSION` | `peer_keys.store.v1` | Wrapped `peer_keys.json` schema | The on-disk `peer_keys.json` document shape changes | Peer-key lookup logic changes without changing the file schema |
 | `REPLAY_STORE_VERSION` | `replay.store.v1` | Wrapped `replay.json` schema | The on-disk `replay.json` document shape changes | Replay rules change but the stored document shape stays identical |
 
@@ -123,6 +126,8 @@ Aurora. Those values fall into four categories:
 - If a future change only adds internal caching, eviction, or validation logic
   while the written JSON structure stays the same, the store version should not
   move.
+- `sessions.store.v2` adds persisted `current_link.age` so active continuity age
+  no longer has to be inferred from mid-session wire payloads.
 - If any wrapped file changes shape, the loader should either migrate it
   explicitly or reject it clearly.
 
@@ -301,7 +306,7 @@ Use this checklist when any Aurora version string changes.
 | `identity.py` | `ENV_VERSION` | `env.v1` | Envelope contract changes |
 | `identity.py` | `PAYLOAD_ENC_VERSION` | `payload.enc.v1` | Encrypted payload object or binding changes |
 | `identity.py` | `HISTORY_PROOF_VERSION` | `histproof.v1` | `history_proof` object or continuity proof changes |
-| `identity.py` | `SESSIONS_STORE_VERSION` | `sessions.store.v1` | `sessions.json` wrapped schema changes |
+| `identity.py` | `SESSIONS_STORE_VERSION` | `sessions.store.v2` | `sessions.json` wrapped schema changes |
 | `identity.py` | `PEER_KEYS_STORE_VERSION` | `peer_keys.store.v1` | `peer_keys.json` wrapped schema changes |
 | `identity.py` | `REPLAY_STORE_VERSION` | `replay.store.v1` | `replay.json` wrapped schema changes |
 | `identity.py` | `IDENTITY_CONTROLS_VERSION` | `aurora.identity.controls.v1` | Controls API changes incompatibly |

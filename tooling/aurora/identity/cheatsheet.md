@@ -99,6 +99,10 @@ What Alice receives (`env2` shape difference):
 }
 ```
 
+Non-start note:
+- Reply/continue records emit `age: None` on the wire.
+- The authoritative continuity age is kept in local `current_link` storage.
+
 Alice final open:
 ```python
 # inside an async function / handler

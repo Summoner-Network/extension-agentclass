@@ -101,6 +101,23 @@ def test_bootstrap_age_nonzero_is_rejected_but_identity_only_stays_known(tmp_pat
     assert not _contains_peer(bob.list_verified_peers(), env_bad["from"])
 
 
+def test_bootstrap_without_history_proof_requires_age_zero(tmp_path):
+    """Proof-less bootstrap should be rejected when age claims prior continuity."""
+    alice, bob, _, pub_b = _make_pair(tmp_path)
+    s0 = asyncio.run(alice.start_session(pub_b))
+    env0 = asyncio.run(alice.seal_envelope({"msg": "hello"}, s0, to=pub_b))
+    bad_session = dict(env0["session_proof"])
+    bad_session["history_proof"] = None
+    bad_session["age"] = 1
+    env_bad = _resign_env(alice, env0, session_override=bad_session)
+
+    st = asyncio.run(bob.open_envelope(env_bad, return_status=True))
+    assert st["ok"] is False
+    assert st["code"] == "session_verify_failed"
+    assert _contains_peer(bob.list_known_peers(), env_bad["from"])
+    assert not _contains_peer(bob.list_verified_peers(), env_bad["from"])
+
+
 def test_verify_discovery_envelope_marks_peer_verified(tmp_path):
     """Verified discovery should explicitly promote a peer to verified."""
     alice, bob, pub_a, _ = _make_pair(tmp_path)
@@ -137,8 +154,8 @@ def test_list_verified_peers_uses_completed_continuity_evidence(tmp_path):
     assert _contains_peer(alice.list_verified_peers(), pub_b)
 
 
-def test_continue_session_preserves_age_after_history_backed_restart(tmp_path):
-    """Replies on a restarted thread should carry the established continuity age forward."""
+def test_continue_session_emits_null_age_after_history_backed_restart(tmp_path):
+    """Replies on a restarted thread should emit null age while local state keeps continuity."""
     alice, bob, pub_a, pub_b = _make_pair(tmp_path)
     _complete_exchange(alice, bob, pub_a, pub_b)
 
@@ -149,7 +166,49 @@ def test_continue_session_preserves_age_after_history_backed_restart(tmp_path):
 
     s3 = asyncio.run(bob.continue_session(pub_a, env2["session_proof"]))
     assert isinstance(s3, dict)
-    assert s3["age"] == 1
+    assert s3["age"] is None
+    key = f"{id_fingerprint(pub_a['pub_sig_b64'])}:1"
+    rec = bob._sessions[key]
+    current = rec.get("current_link") or {}
+    assert current.get("age") == 1
+
+
+@pytest.mark.parametrize("variant", ["null", "missing", "legacy"])
+def test_non_start_age_variants_are_accepted(tmp_path, variant):
+    """Ongoing messages should accept null, missing, or legacy integer age fields."""
+    alice, bob, pub_a, pub_b = _make_pair(tmp_path)
+    s0 = asyncio.run(alice.start_session(pub_b))
+    env0 = asyncio.run(alice.seal_envelope({"msg": "hello"}, s0, to=pub_b))
+    assert asyncio.run(bob.open_envelope(env0)) == {"msg": "hello"}
+
+    s1 = asyncio.run(bob.continue_session(pub_a, env0["session_proof"]))
+    assert isinstance(s1, dict)
+    assert s1.get("age") is None
+    if variant == "missing":
+        session = dict(s1)
+        session.pop("age", None)
+    elif variant == "legacy":
+        session = dict(s1)
+        session["age"] = 0
+    else:
+        session = s1
+
+    env1 = asyncio.run(bob.seal_envelope({"msg": "ack"}, session, to=pub_a))
+    assert asyncio.run(alice.open_envelope(env1)) == {"msg": "ack"}
+
+
+def test_start_form_with_null_age_is_rejected(tmp_path):
+    """Start-form continuity still requires integer age."""
+    alice, bob, _, pub_b = _make_pair(tmp_path)
+    s0 = asyncio.run(alice.start_session(pub_b))
+    env0 = asyncio.run(alice.seal_envelope({"msg": "hello"}, s0, to=pub_b))
+    bad_session = dict(env0["session_proof"])
+    bad_session["age"] = None
+    env_bad = _resign_env(alice, env0, session_override=bad_session)
+
+    st = asyncio.run(bob.open_envelope(env_bad, return_status=True))
+    assert st["ok"] is False
+    assert st["code"] == "session_verify_failed"
 
 
 def test_start_session_respects_live_stream_current_link_not_original_ttl(tmp_path):

@@ -96,10 +96,12 @@ ID_VERSION = "id.v1"
 ENV_VERSION = "env.v1"
 PAYLOAD_ENC_VERSION = "payload.enc.v1"
 HISTORY_PROOF_VERSION = "histproof.v1"
-SESSIONS_STORE_VERSION = "sessions.store.v1"
+SESSIONS_STORE_VERSION = "sessions.store.v2"
 PEER_KEYS_STORE_VERSION = "peer_keys.store.v1"
 REPLAY_STORE_VERSION = "replay.store.v1"
 IDENTITY_CONTROLS_VERSION = "aurora.identity.controls.v1"
+
+_LEGACY_SESSIONS_STORE_VERSIONS = frozenset({"sessions.store.v1"})
 
 _HKDF_INFO_SYM = b"summoner/session/v1/sym"
 _HKDF_INFO_HISTORY_PROOF = b"summoner/session/v1/history_proof"
@@ -610,6 +612,61 @@ def _unwrap_store_doc(obj: Any, *, store_name: str, version: str) -> dict[str, A
     if not isinstance(data, dict):
         raise ValueError(f"invalid {store_name} store data")
     return data
+
+
+def _nonnegative_int(value: Any) -> Optional[int]:
+    """Return a non-negative int value, else None."""
+    if isinstance(value, int) and value >= 0:
+        return int(value)
+    return None
+
+
+def _history_tip_age(rec: Any) -> int:
+    """Return the finalized continuity age at the history tip, else 0."""
+    history = (rec.get("history") if isinstance(rec, dict) else None) or []
+    if isinstance(history, list) and history:
+        last = history[-1]
+        if isinstance(last, dict):
+            age = _nonnegative_int(last.get("age"))
+            if age is not None:
+                return age
+    return 0
+
+
+def _current_link_age(rec: Any, current: Any) -> int:
+    """
+    Return the local active continuity age for one current_link.
+
+    If the current link does not carry an explicit age, fall back to the
+    finalized history tip for that peer/role lane.
+    """
+    if isinstance(current, dict):
+        age = _nonnegative_int(current.get("age"))
+        if age is not None:
+            return age
+    return _history_tip_age(rec)
+
+
+def _normalize_sessions_store_data(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Normalize wrapped sessions store data into the current in-memory shape.
+
+    Older stores may omit `current_link.age`. When absent, reconstruct the local
+    active continuity age from the finalized history tip.
+    """
+    out: dict[str, Any] = {}
+    for key, rec in data.items():
+        if not isinstance(rec, dict):
+            out[key] = rec
+            continue
+        rec_out = dict(rec)
+        current = rec_out.get("current_link")
+        if isinstance(current, dict):
+            current_out = dict(current)
+            current_out["age"] = _current_link_age(rec_out, current_out)
+            rec_out["current_link"] = current_out
+        out[key] = rec_out
+    return out
 
 
 def _kdf_scrypt(password: bytes, salt: bytes, *, n: int, r: int, p: int) -> bytes:
@@ -1656,11 +1713,20 @@ class SummonerIdentity:
             return
         with open(self._sessions_path, "r", encoding="utf-8") as f:
             obj = json.load(f)
-        self._sessions = _unwrap_store_doc(
-            obj,
-            store_name="sessions",
-            version=SESSIONS_STORE_VERSION,
-        )
+        if not isinstance(obj, dict):
+            raise ValueError("invalid sessions store document")
+        doc_store_name = obj.get(_STORE_DOC_KIND_FIELD)
+        if doc_store_name is None:
+            raise ValueError("invalid sessions store document")
+        if doc_store_name != "sessions":
+            raise ValueError(f"unexpected store kind for sessions: {doc_store_name!r}")
+        version = obj.get(_STORE_DOC_VERSION_FIELD)
+        data = obj.get(_STORE_DOC_DATA_FIELD)
+        if not isinstance(data, dict):
+            raise ValueError("invalid sessions store data")
+        if version != SESSIONS_STORE_VERSION and version not in _LEGACY_SESSIONS_STORE_VERSIONS:
+            raise ValueError("unsupported sessions store version")
+        self._sessions = _normalize_sessions_store_data(data)
 
     def _save_sessions_fallback(self) -> None:
         """
@@ -2478,8 +2544,10 @@ class SummonerIdentity:
         - age: integer index into peer history (meaning depends on policy)
 
         history_proof behavior:
-        - If peer_public_id is provided, and we have stored history for that peer,
-          history_proof is populated to allow continuity validation by the peer.
+        - If peer_public_id is provided, history_proof is populated to allow
+          continuity validation by the peer.
+        - When no finalized history exists locally yet, the proof still carries
+          the reset bootstrap hash with age 0.
         - history_proof plaintext includes history_hash (not sym_key), plus nonces and age.
         - history_proof is AEAD-encrypted under a key derived from sym_key, and AAD binds
           to the message direction and session timing fields.
@@ -2628,6 +2696,8 @@ class SummonerIdentity:
           - generate a fresh nonce for the local role
           - update ts and ttl
           - history_proof is not populated here (it is used as a start-session continuity proof)
+          - age is emitted as null on the non-start wire record; local continuity
+            age is preserved in active session state
         - Persist the next session proof via register_session.
 
         The returned session proof is intended to be used by seal_envelope().
@@ -2695,17 +2765,11 @@ class SummonerIdentity:
             "ts": ts,
             "ttl": ttl_i,
             "history_proof": None,
-            "age": 0,
+            "age": None,
             "mode": "single",
             "stream": None,
             "stream_ttl": None,
         }
-
-        age = current.get("age") if isinstance(current, dict) else None
-        if not isinstance(age, int) or age < 0:
-            age = peer_session.get("age")
-        if isinstance(age, int) and age >= 0:
-            next_session["age"] = age
 
         if local_role == 0:
             next_session["0_nonce"] = secrets.token_hex(16)
@@ -2740,6 +2804,10 @@ class SummonerIdentity:
     ) -> Any:
         """
         Advance an active stream for the same sender role.
+
+        Stream chunk/end frames are continuation forms. They emit `age = null`
+        on the wire while preserving the authoritative continuity age in the
+        locally stored current_link.
         """
         if self.public_id is None:
             raise ValueError("call .id(...) first")
@@ -2776,7 +2844,7 @@ class SummonerIdentity:
             "ts": ts,
             "ttl": ttl_i,
             "history_proof": None,
-            "age": int(session.get("age", 0)),
+            "age": None,
             "mode": "stream",
             "stream": {"id": in_id, "seq": seq, "phase": phase},
             "stream_ttl": None if end_stream else int(stream_ttl),
@@ -3615,6 +3683,8 @@ class SummonerIdentity:
                 return False
 
             if history_proof is None:
+                if age != 0:
+                    return False
                 if isinstance(current_for_start_form, dict):
                     return False
                 if isinstance(rec, dict) and rec.get("history"):
@@ -3720,7 +3790,7 @@ class SummonerIdentity:
           "local_role": 0/1,
           "active": bool,
           "past_chain": [ {"0_nonce":..., "1_nonce":..., "delta_t":...}, ... ],
-          "current_link": {"0_nonce":..., "1_nonce":..., "ts":..., "ttl":..., "completed": bool, "seen": [...]} or None,
+          "current_link": {"0_nonce":..., "1_nonce":..., "ts":..., "ttl":..., "age": int, "completed": bool, "seen": [...]} or None,
           "history": [ {"hash":..., "age":..., "ts":...}, ... ],
           "window": <int>,
         }
@@ -3811,6 +3881,7 @@ class SummonerIdentity:
                 "1_nonce": session_record.get("1_nonce"),
                 "ts": int(session_record.get("ts", _now_unix())),
                 "ttl": int(session_record.get("ttl", self.ttl)),
+                "age": _current_link_age(rec, session_record),
                 "completed": False,
                 "seen": [session_record.get(nx)],
                 "stream_mode": str(session_record.get("mode", "single")),
@@ -3854,6 +3925,7 @@ class SummonerIdentity:
             "1_nonce": session_record.get("1_nonce"),
             "ts": int(session_record.get("ts", _now_unix())),
             "ttl": int(session_record.get("ttl", self.ttl)),
+            "age": _current_link_age(rec, current),
             "completed": completed,
             "seen": seen,
             "stream_mode": str(session_record.get("mode", "single")),

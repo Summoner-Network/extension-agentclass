@@ -216,7 +216,7 @@ assert "priv_sig_b64" not in public_id
    - `1_nonce = null`
    - `ts` (unix seconds)
    - `ttl` (seconds)
-   - `history_proof` (if peer is provided and local history exists)
+   - `history_proof` (if peer is provided; carries finalized-tip continuity or reset/bootstrap state)
    - `age` (local history counter)
 3. Store it under `(peer_id, local_role=0)` or a generic slot for public messages.
 
@@ -370,6 +370,8 @@ assert payload == {"msg": "hi"}
 2. Validate peer proof equals local `current_link`.
 3. Generate new nonce for own role.
 4. Return new `session_proof` for reply.
+5. Emit `age = null` on the non-start wire record while preserving the local
+   continuity age in active session storage.
 
 **Example (SDK)**
 

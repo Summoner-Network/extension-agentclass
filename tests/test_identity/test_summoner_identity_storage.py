@@ -14,6 +14,14 @@ from tooling.aurora.identity import (
     SESSIONS_STORE_VERSION,
 )
 
+
+def _store_doc(store_name, version, data):
+    return {
+        '__summoner_identity_store__': store_name,
+        'v': version,
+        'data': data,
+    }
+
 def _make_pair(tmp_path, **kwargs):
     """Create isolated pair plus identity directories with configurable envelope options."""
     a_dir = tmp_path / 'a'
@@ -116,6 +124,72 @@ def test_persistence_files_use_versioned_store_docs(tmp_path):
     assert b_replay['__summoner_identity_store__'] == 'replay'
     assert b_replay['v'] == REPLAY_STORE_VERSION
     assert isinstance(b_replay['data'], dict)
+
+
+def test_sessions_store_persists_local_current_link_age_when_non_start_wire_age_is_null(tmp_path):
+    """Fallback sessions should retain local continuity age even when ongoing wire age is null."""
+    identity_a, identity_b, pub_a, pub_b, _, b_dir = _make_pair(tmp_path, ttl=60, margin=0)
+
+    s0 = asyncio.run(identity_a.start_session(pub_b))
+    env0 = asyncio.run(identity_a.seal_envelope({'msg': 'hello'}, s0, to=pub_b))
+    assert asyncio.run(identity_b.open_envelope(env0)) == {'msg': 'hello'}
+    s1 = asyncio.run(identity_b.continue_session(pub_a, env0['session_proof']))
+    env1 = asyncio.run(identity_b.seal_envelope({'msg': 'ack'}, s1, to=pub_a))
+    assert asyncio.run(identity_a.open_envelope(env1)) == {'msg': 'ack'}
+
+    s2 = asyncio.run(identity_a.start_session(pub_b))
+    env2 = asyncio.run(identity_a.seal_envelope({'msg': 'again'}, s2, to=pub_b))
+    assert asyncio.run(identity_b.open_envelope(env2)) == {'msg': 'again'}
+
+    s3 = asyncio.run(identity_b.continue_session(pub_a, env2['session_proof']))
+    assert s3['age'] is None
+
+    with open(b_dir / 'sessions.json', 'r', encoding='utf-8') as f:
+        sessions_doc = json.load(f)
+    key = f"{id_fingerprint(pub_a['pub_sig_b64'])}:1"
+    current = sessions_doc['data'][key]['current_link']
+    assert current['age'] == 1
+
+
+def test_sessions_store_v1_load_migrates_missing_current_link_age(tmp_path):
+    """Legacy sessions.store.v1 files should load and reconstruct current_link.age locally."""
+    d = tmp_path / 'node'
+    d.mkdir(parents=True, exist_ok=True)
+    identity = SummonerIdentity(store_dir=str(d), persist_local=True, load_local=True, ttl=120, margin=0)
+    pub = identity.id(str(d / 'id.json'))
+    fp = id_fingerprint(pub['pub_sig_b64'])
+    key = f'{fp}:0'
+    stored_sessions = {
+        key: {
+            'peer_id': fp,
+            'local_role': 0,
+            'active': True,
+            'past_chain': [],
+            'history': [{'hash': '11' * 32, 'age': 3, 'ts': 1}],
+            'window': 20,
+            'current_link': {
+                '0_nonce': 'aa' * 16,
+                '1_nonce': 'bb' * 16,
+                'ts': 2,
+                'ttl': 60,
+                'completed': False,
+                'seen': ['aa' * 16],
+            },
+        }
+    }
+    with open(d / 'sessions.json', 'w', encoding='utf-8') as f:
+        json.dump(_store_doc('sessions', 'sessions.store.v1', stored_sessions), f)
+
+    identity2 = SummonerIdentity(store_dir=str(d), persist_local=True, load_local=True, ttl=120, margin=0)
+    identity2.id(str(d / 'id.json'))
+    rec = identity2._sessions[key]
+    current = rec.get('current_link') or {}
+    assert current.get('age') == 3
+    identity2._save_sessions_fallback()
+    with open(d / 'sessions.json', 'r', encoding='utf-8') as f:
+        sessions_doc = json.load(f)
+    assert sessions_doc['v'] == SESSIONS_STORE_VERSION
+    assert sessions_doc['data'][key]['current_link']['age'] == 3
 
 def test_list_known_peers_returns_cached_public_ids(tmp_path):
     """Known peer listing should return unique public_id records observed by receiver."""

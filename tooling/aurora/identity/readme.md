@@ -165,7 +165,7 @@ The scheme is intentionally minimal:
   "ts": 1730000000,
   "ttl": 86400,
   "history_proof": "<object or null>",
-  "age": 3,
+  "age": "<int on start-form, null on non-start>",
   "mode": "single|stream",
   "stream": "null|{id,seq,phase}",
   "stream_ttl": "null|int"
@@ -238,7 +238,7 @@ Continue/reply (`continue_session(...)`):
   "ts": 1730000012,
   "ttl": 86400,
   "history_proof": null,
-  "age": "<preserved continuity age>",
+  "age": null,
   "mode": "single",
   "stream": null,
   "stream_ttl": null
@@ -278,7 +278,7 @@ Responder-owned stream start (`continue_session(..., stream=True, ...)`):
   "ts": 1730000012,
   "ttl": 120,
   "history_proof": null,
-  "age": "<preserved continuity age>",
+  "age": null,
   "mode": "stream",
   "stream": {"id": "<stream_id>", "seq": 0, "phase": "start"},
   "stream_ttl": 60
@@ -287,8 +287,9 @@ Responder-owned stream start (`continue_session(..., stream=True, ...)`):
 
 Age note:
 
-* `continue_session(...)` and responder-owned stream starts normally preserve the
-  active continuity age rather than resetting it to zero.
+* Non-start session proofs now emit `age = null`.
+* The active continuity age is preserved as local session state (`current_link.age`)
+  rather than as mid-session wire metadata.
 * `age = 0` is still expected on proof-less bootstrap cases where no prior local
   continuity exists.
 
@@ -306,7 +307,7 @@ stream keeps `1_nonce = null` across its frames.
   "ts": 1730000020,
   "ttl": 120,
   "history_proof": null,
-  "age": 3,
+  "age": null,
   "mode": "stream",
   "stream": {"id": "<stream_id>", "seq": 1, "phase": "chunk|end"},
   "stream_ttl": "60 for chunk, null for end"
@@ -1007,7 +1008,7 @@ All three files are written as wrapped versioned documents:
 
 The store-version strings are:
 
-* `sessions.store.v1`
+* `sessions.store.v2`
 * `peer_keys.store.v1`
 * `replay.store.v1`
 
@@ -1017,6 +1018,7 @@ Store loading rules:
 
 * the file must be a wrapped store document with `__summoner_identity_store__`, `v`, and `data`,
 * unsupported versions are rejected fail-closed,
+* legacy `sessions.store.v1` files are migrated on load into the current in-memory shape,
 * malformed documents are rejected fail-closed.
 
 ### `sessions.json` inner `data` schema
@@ -1033,6 +1035,7 @@ Store loading rules:
       "1_nonce": "...",
       "ts": 123,
       "ttl": 456,
+      "age": 2,
       "completed": false,
       "seen": ["..."],
       "stream_mode": "single|stream",
@@ -1805,7 +1808,7 @@ Returns the wrapped fallback-store version strings for:
 
 ```python
 store_versions = SummonerIdentity.store_versions()
-assert store_versions["sessions"] == "sessions.store.v1"
+assert store_versions["sessions"] == "sessions.store.v2"
 ```
 
 ---
@@ -2652,7 +2655,7 @@ async def get_session(peer_public_id, local_role) -> dict | None:
 **Best practices**
 
 * Return the stored `current_link` exactly as your verifier expects. Mismatched shapes cause false rejects.
-* If you persist sessions externally, prefer storing `ts`, `ttl`, `seen`, and `completed` fields intact.
+* If you persist sessions externally, prefer storing `ts`, `ttl`, `age`, `seen`, and `completed` fields intact.
 * If you implement custom verification around restart/reload behavior, keep stale-state
   normalization in the verifier rather than mutating lookup results implicitly.
 
@@ -3105,8 +3108,8 @@ Algorithm:
   * `sender_role = local_role`
   * fresh nonce for your role
   * carry-forward of the other nonce
-  * preserve `age` from current continuity when available, otherwise fall back to
-    the peer's presented age
+  * emit `age = null` on the non-start wire record
+  * preserve the authoritative continuity age in local `current_link.age`
 * Persist via `register_session(new=False)`.
 
 Streaming mode:
