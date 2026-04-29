@@ -6,9 +6,6 @@ test_server_config.json
 test_server.py
 
 # temporary (Remy)
-todo.py
-validation_draft.json
-server_comm.jsonc
 tooling/aurora/identity/identity_backup.py
 tests/test_aurora_agent/
 tests/test_session_agent/
